@@ -1,0 +1,87 @@
+{
+  "DefineClassTask": {
+    "rankingDir": "./result/"
+  },
+  "CategoryLookupTask": {
+    "out_dir": "./graphs/",
+    "graphPaths": "/Users/cedricrichter/Documents/Arbeit/Ranking/PyPRSVT/static/results-tb-raw/",
+    "max_size": 1000
+  },
+  "GraphIndexTask": {
+    "out_dir": "./result/",
+    "categories": [
+      "array-examples",
+      "array-industry-pattern",
+      "bitvector-loops",
+      "bitvector-regression",
+      "bitvector",
+      "ddv-machzwd",
+      "eca-rers2012",
+      "float-benchs",
+      "floats-cbmc-regression",
+      "floats-cdfpl",
+      "float-esbmc-regression",
+      "forester-heap",
+      "heap-manipulation",
+      "ldv-challenges",
+      "ldv-commit-tester",
+      "ldv-consumption",
+      "ldv-linux-3.0",
+      "ldv-linux-3.4-simple",
+      "ldv-linux-3.7.3",
+      "ldv-linux-3.12-rc1",
+      "ldv-linux-3.14",
+      "ldv-linux-3.16-rc1",
+      "ldv-linux-4.0-rc1-mav",
+      "ldv-linux-4.2-rc1",
+      "ldv-regression",
+      "ldv-validator-v0.6",
+      "ldv-validator-v0.8",
+      "list-ext-properties",
+      "list-ext2-properties",
+      "list-properties",
+      "locks",
+      "loop-acceleration",
+      "loop-industy-pattern",
+      "loop-invgen",
+      "loop-lit",
+      "loop-new",
+      "loops",
+      "ntdrivers-simplified",
+      "ntdrivers",
+      "product-lines",
+      "psyco",
+      "recursive-simple",
+      "reducercommutativity",
+      "seq-mthreaded",
+      "seq-pthread",
+      "ssh-simplified",
+      "ssh",
+      "systemc"
+    ]
+  },
+  "GraphSubTask": {
+    "graphOut": "./graphs/",
+    "cpaChecker": "/Users/cedricrichter/Documents/Arbeit/Ranking/cpachecker",
+    "heap": "16384m"
+  },
+  "GraphConvertTask": {
+    "graphOut": "./graphs/"
+  },
+  "GraphPruningTask":{
+    "graphOut": "./graphs",
+    "allowedTypes" : [1, 2, 3, 4]
+  },
+  "PrepareKernelTask": {
+    "graphOut": "./gram/"
+  },
+  "WLCollectorTask": {
+    "out_dir": "./gram/"
+  },
+  "WLKernelTask": {
+    "out_dir": "./gram/"
+  },
+  "NormalizedWLKernelTask": {
+    "out_dir": "./gram/"
+  }
+}
