@@ -2,7 +2,7 @@ from pyTasks import task
 from pyTasks.task import Task, Parameter, TaskProgressHelper
 from pyTasks.task import containerHash
 from pyTasks.target import CachedTarget, LocalTarget, JsonService
-from prepare_tasks import GraphIndexTask
+from .prepare_tasks import GraphIndexTask
 from svcomp15 import Status
 import pandas as pd
 import math

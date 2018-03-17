@@ -1,5 +1,5 @@
 import networkx as nx
-from graph_tasks import GraphPruningTask, GraphConvertTask
+from .graph_tasks import GraphPruningTask, GraphConvertTask
 
 
 def optimizePruning(graph):

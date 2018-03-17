@@ -2,8 +2,8 @@ import inspect
 import networkx as nx
 from tqdm import tqdm
 import json
-from classification_tasks import EvaluationAndSettingTask, CGridTask, hDGridTask
-from classification_tasks import EvaluationTask
+from .classification_tasks import EvaluationAndSettingTask, CGridTask, hDGridTask
+from .classification_tasks import EvaluationTask
 import numpy as np
 
 __run__ = True

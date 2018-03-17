@@ -4,15 +4,15 @@ from sklearn.base import BaseEstimator, ClassifierMixin
 import numpy as np
 from pyTasks.task import Task, Parameter, Optional
 from pyTasks.utils import containerHash
-from ranking_task import DefineClassTask
-from gram_tasks import NormalizedWLKernelTask, parseList, MDSTask
-from gram_tasks import ExtractKernelEntitiesTask
+from .ranking_task import DefineClassTask
+from .gram_tasks import NormalizedWLKernelTask, parseList, MDSTask
+from .gram_tasks import ExtractKernelEntitiesTask
 from pyTasks.target import CachedTarget, LocalTarget, JsonService
 from sklearn.model_selection import KFold
 import random
 import math
 from sklearn.grid_search import ParameterGrid
-from prepare_tasks import GraphIndexTask
+from .prepare_tasks import GraphIndexTask
 from pyTasks.utils import tick
 import networkx as nx
 from tqdm import tqdm

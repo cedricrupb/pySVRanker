@@ -3,14 +3,14 @@ from pyTasks.task import Task, Parameter
 from pyTasks.task import Optional, containerHash, TaskProgressHelper
 from pyTasks.target import CachedTarget, LocalTarget, NetworkXService, ManagedTarget
 from pyTasks.target import FileTarget, JsonService
-from graph_tasks import GraphPruningTask
-from ranking_task import ExtractInfoTask
+from .graph_tasks import GraphPruningTask
+from .ranking_task import ExtractInfoTask
 import networkx as nx
 import numpy as np
-from prepare_tasks import GraphIndexTask
+from .prepare_tasks import GraphIndexTask
 import os
 from os.path import dirname
-from ranking_task import DefineClassTask
+from .ranking_task import DefineClassTask
 import csv
 from sklearn.manifold import MDS
 import matplotlib.pyplot as plt

@@ -10,7 +10,7 @@ import re
 import json
 from enum import Enum
 import networkx as nx
-from prepare_tasks import GraphIndexTask
+from .prepare_tasks import GraphIndexTask
 from pyTasks.utils import tick
 
 
