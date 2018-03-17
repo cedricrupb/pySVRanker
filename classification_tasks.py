@@ -5,7 +5,8 @@ import numpy as np
 from pyTasks.task import Task, Parameter, Optional
 from pyTasks.utils import containerHash
 from ranking_task import DefineClassTask
-from gram_tasks import NormalizedWLKernelTask, parseList, MDSTask, ExtractKernelBagTask
+from gram_tasks import NormalizedWLKernelTask, parseList, MDSTask
+from gram_tasks import ExtractKernelEntitiesTask
 from pyTasks.target import CachedTarget, LocalTarget, JsonService
 from sklearn.model_selection import KFold
 import random
@@ -463,7 +464,7 @@ if __name__ == '__main__':
             "graphOut": "./test/"
         },
         "CategoryLookupTask": {
-            "graphPaths": "/home/cedricr/predicate/PyPRSVT/static/results-tb-raw/"
+            "graphPaths": "/Users/cedricrichter/Documents/Arbeit/Ranking/PyPRSVT/static/results-tb-raw/"
         },
         "MemcachedTarget": {
             "baseDir": "./cache/"
@@ -498,9 +499,8 @@ if __name__ == '__main__':
 
         graphs.extend(v)
 
-    for g in graphs:
-        iTask = ExtractKernelBagTask(g, 1, 5)
-        plan = planner.plan(iTask, graph=plan)
+    iTask = ExtractKernelEntitiesTask(graphs, 0, 5)
+    plan = planner.plan(iTask, graph=plan)
 
-    # exe.executePlan(plan)
-    nx.write_gpickle(plan, './graph.pickle')
+    exe.executePlan(plan)
+    # nx.write_gpickle(plan, './graph.pickle')

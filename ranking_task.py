@@ -18,7 +18,7 @@ class DefineClassTask(Task):
         return GraphIndexTask()
 
     def output(self):
-        path = self.out_dir.value + self.__taskid__() + '.csv'
+        path = self.out_dir.value + self.__taskid__() + '.json'
         return CachedTarget(
                             LocalTarget(path, service=JsonService)
                             )
@@ -76,41 +76,56 @@ class DefineClassTask(Task):
             pdfile.emit(ranking)
 
 
-if __name__ == '__main__':
-    config = {
-        "GraphSubTask": {
-            "graphPath": "/Users/cedricrichter/Documents/Arbeit/Ranking/PyPRSVT/static/results-tb-raw/",
-            "graphOut": "./test/",
-            "cpaChecker": "/Users/cedricrichter/Documents/Arbeit/Ranking/cpachecker"
-                },
-        "GraphConvertTask": {
-            "graphOut": "./test/"
-        },
-        "CategoryLookupTask": {
-            "graphPaths": "/Users/cedricrichter/Documents/Arbeit/Ranking/PyPRSVT/static/results-tb-raw/"
-        },
-        "MemcachedTarget": {
-            "baseDir": "./cache/"
-        },
-        "GraphIndexTask": {
-            "categories": ['array-examples', 'array-industry-pattern']
-        }
-            }
+class ExtractInfoTask(Task):
+    out_dir = Parameter('./ranking/')
 
-    injector = task.ParameterInjector(config)
-    planner = task.TaskPlanner(injector=injector)
-    exe = task.TaskExecutor()
+    def __init__(self, graphs):
+        self.graphs = graphs
 
-    task = GraphIndexTask()
-    plan = planner.plan(task)
-    tph = TaskProgressHelper(plan)
-    exe.executePlan(plan)
+    def require(self):
+        return GraphIndexTask()
 
-    with tph.output(task) as js:
-        index = js.query()
+    def output(self):
+        path = self.out_dir.value + self.__taskid__() + '.json'
+        return CachedTarget(
+                            LocalTarget(path, service=JsonService)
+                            )
 
-    graphs = index['categories']['array-examples'].copy()
-    graphs.extend(index['categories']['array-industry-pattern'])
-    task = DefineClassTask(graphs)
-    plan = planner.plan(task, graph=plan)
-    exe.executePlan(plan)
+    def __taskid__(self):
+        return "ExtractInfoTask_%s" % containerHash(self.graphs)
+
+    def run(self):
+        with self.input()[0] as i:
+            index = i.query()
+            GraphIndexTask.convert_b64(index)
+
+        tools = index['stats']
+
+        ranking = {}
+        for g in self.graphs:
+            gKey = index['index'][g]
+            score_rank = {}
+            max_score = -20
+            for cat, D in tools.items():
+                for t, D in D.items():
+                    if gKey not in D.index:
+                        continue
+                    d = D.loc[gKey]
+                    status = d['status']
+                    expected = d['expected_status']
+                    state = 'false'
+                    if (status is Status.false and expected is Status.false)\
+                       or (status is Status.true and expected is Status.true):
+                        state = 'correct'
+
+                    time = d['cputime']
+
+                    score_rank[t] = {
+                                        'solve': state,
+                                        'time': time
+                                    }
+
+            ranking[g] = score_rank
+
+        with self.output() as pdfile:
+            pdfile.emit(ranking)

@@ -4,6 +4,7 @@ from pyTasks.task import Optional, containerHash, TaskProgressHelper
 from pyTasks.target import CachedTarget, LocalTarget, NetworkXService, ManagedTarget
 from pyTasks.target import FileTarget, JsonService
 from graph_tasks import GraphPruningTask
+from ranking_task import ExtractInfoTask
 import networkx as nx
 import numpy as np
 from prepare_tasks import GraphIndexTask
@@ -316,7 +317,6 @@ class NormalizedWLKernelTask(Task):
 
 class ExtractKernelBagTask(Task):
     out_dir = Parameter('./gram/')
-    timeout = Parameter(None)
 
     def __init__(self, graph, h, D):
         self.graph = graph
@@ -346,6 +346,59 @@ class ExtractKernelBagTask(Task):
 
         with self.output() as o:
             o.emit(G.graph['label_count'])
+
+
+class ExtractKernelEntitiesTask(Task):
+    out_dir = Parameter('./gram/')
+
+    def __init__(self, graphs, h, D):
+        self.graphs = graphs
+        self.h = h
+        self.D = D
+
+    def require(self):
+        out = [ExtractInfoTask(self.graphs), GraphIndexTask()]
+
+        for g in self.graphs:
+            out.append(ExtractKernelBagTask(g, self.h, self.D))
+
+        return out
+
+    def output(self):
+        path = self.out_dir.value + self.__taskid__() + '.json'
+        return CachedTarget(
+            LocalTarget(path, service=JsonService)
+        )
+
+    def __taskid__(self):
+        return 'ExtractKernelEntitiesTask_%d_%d_%s' % (self.h, self.D,
+                                                       str(
+                                                        containerHash(self.graphs)
+                                                       ))
+
+    def run(self):
+        with self.input()[0] as i:
+            info = i.query()
+
+        with self.input()[1] as i:
+            index = i.query()['index']
+
+        out_dict = {}
+
+        for i, g in enumerate(self.graphs):
+            name = index[g]
+
+            with self.input()[i + 2] as bag_input:
+                bag = bag_input.query()
+
+            out_dict[g] = {
+                'file': name,
+                'kernel_bag': bag,
+                'label': info[g]
+            }
+
+        with self.output() as out_file:
+            out_file.emit(out_dict)
 
 
 class MDSTask(Task):
