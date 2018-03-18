@@ -360,7 +360,7 @@ class ExtractKernelEntitiesTask(Task):
         out = [ExtractInfoTask(self.graphs), GraphIndexTask()]
 
         for g in self.graphs:
-            out.append(ExtractKernelBagTask(g, self.h, self.D))
+            out.append(Optional(ExtractKernelBagTask(g, self.h, self.D)))
 
         return out
 
@@ -387,6 +387,9 @@ class ExtractKernelEntitiesTask(Task):
 
         for i, g in enumerate(self.graphs):
             name = index[g]
+
+            if self.input()[i + 2] is None:
+                continue
 
             with self.input()[i + 2] as bag_input:
                 bag = bag_input.query()

@@ -1,7 +1,7 @@
 from pyTasks.task import Task, Parameter
 from pyTasks.task import Optional, containerHash
 from pyTasks.target import CachedTarget, LocalTarget, JsonService, ManagedTarget
-import svcomp15
+from . import svcomp15
 import pickle
 import base64
 import re
@@ -122,7 +122,6 @@ class GraphIndexTask(Task):
             j.extend(v)
 
         indexMap = self.__shortestPostfix(j)
-        print(indexMap)
         prefixMap = {v: k for k, v in indexMap.items()}
 
         for k, v in filesDict.items():
