@@ -63,11 +63,12 @@ def _parse_node_depth(node_depth):
     return types
 
 
-class GraphSubTask(Task):
+class GraphTask(Task):
     out_dir = Parameter('./out/graph/')
     cpaChecker = Parameter('./cpa/')
     heap = Parameter("16384m")
     timeout = Parameter(None)
+    localize = Parameter(None)
 
     def __init__(self, name):
         self.name = name
@@ -75,7 +76,13 @@ class GraphSubTask(Task):
     def require(self):
         return GraphIndexTask()
 
-    def run(self):
+    def _localize(self, path):
+        if self.localize.value is not None:
+            return path.replace(self.localize.value[0],
+                                self.localize.value[1])
+        return path
+
+    def run_first(self):
 
         with self.input()[0] as i:
             index = i.query()
@@ -84,7 +91,7 @@ class GraphSubTask(Task):
             if self.name not in index:
                 raise ValueError('%s does not exist' % self.name)
 
-            path_to_source = abspath(index[self.name])
+            path_to_source = self._localize(abspath(index[self.name]))
 
         __path_to_cpachecker__ = self.cpaChecker.value
         cpash_path = join(__path_to_cpachecker__, 'scripts', 'cpa.sh')
@@ -99,7 +106,7 @@ class GraphSubTask(Task):
         if not isdir(__path_to_cpachecker__):
             raise ValueError('CPAChecker directory not found')
         if not (isfile(path_to_source) and (path_to_source.endswith('.i') or path_to_source.endswith('.c'))):
-            raise ValueError('path_to_source is no valid filepath')
+            raise ValueError('path_to_source is no valid filepath. [%s]' % path_to_source)
         try:
             proc = subprocess.run([cpash_path,
                                    '-graphgenAnalysis',
@@ -131,38 +138,12 @@ class GraphSubTask(Task):
             logging.error(proc.stderr.decode('utf-8'))
             raise err
 
-        with self.output() as o:
-            o.emit([graph_path,
-                    node_labels_path,
-                    edge_types_path,
-                    edge_truth_path,
-                    node_depths_path
-                    ])
-
-    def output(self):
-        path = self.out_dir.value + self.name + '_tmp.json'
-        return CachedTarget(
-            LocalTarget(path, service=JsonService)
-        )
-
-    def __taskid__(self):
-        return 'GraphSub_' + self.name
-
-
-class GraphConvertTask(Task):
-    out_dir = Parameter('./out/graph/')
-    timeout = Parameter(None)
-
-    def __init__(self, name):
-        self.name = name
-
-    def require(self):
-        return GraphSubTask(self.name)
+        return graph_path, node_labels_path, edge_types_path,\
+            edge_truth_path, node_depths_path
 
     def run(self):
-        with self.input()[0] as i:
-            graph_path, node_labels_path, edge_types_path, edge_truth_path,\
-                node_depths_path = i.query()
+        graph_path, node_labels_path, edge_types_path, edge_truth_path,\
+            node_depths_path = self.run_first()
 
         tick(self)
 
@@ -199,7 +180,7 @@ class GraphConvertTask(Task):
         )
 
     def __taskid__(self):
-        return 'GraphConv_' + self.name
+        return 'GraphTask_' + self.name
 
 
 class GraphPruningTask(Task):
@@ -219,7 +200,7 @@ class GraphPruningTask(Task):
         self.maxDepth = maxDepth
 
     def require(self):
-        return GraphConvertTask(self.name)
+        return GraphTask(self.name)
 
     def run(self):
         with self.input()[0] as i:
