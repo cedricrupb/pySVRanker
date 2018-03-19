@@ -97,9 +97,6 @@ class GraphIndexTask(Task):
                 helper[k] = v
                 k = self._postfix(s, post)
 
-            if post == len(s):
-                continue
-
             helper[k] = s
             minP = post
 
