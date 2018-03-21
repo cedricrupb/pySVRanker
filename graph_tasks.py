@@ -12,6 +12,7 @@ from enum import Enum
 import networkx as nx
 from .prepare_tasks import GraphIndexTask
 from pyTasks.utils import tick
+import os
 
 
 class EdgeType(Enum):
@@ -111,7 +112,8 @@ class GraphTask(Task):
             proc = subprocess.run([cpash_path,
                                    '-graphgenAnalysis',
                                    '-heap', self.heap.value,
-                                   '-skipRecursion', path_to_source
+                                   '-skipRecursion', path_to_source,
+                                   '-outputpath', output_path
                                    ],
                                   check=False, stdout=PIPE, stderr=PIPE,
                                   timeout=self.timeout.value)
@@ -139,6 +141,23 @@ class GraphTask(Task):
 
         return graph_path, node_labels_path, edge_types_path,\
             edge_truth_path, node_depths_path
+
+    def cleanup(self, graph_path, node_labels_path, edge_types_path,
+                edge_truth_path, node_depths_path):
+        if os.path.isfile(graph_path):
+            os.remove(graph_path)
+
+        if os.path.isfile(node_labels_path):
+            os.remove(node_labels_path)
+
+        if os.path.isfile(edge_types_path):
+            os.remove(edge_types_path)
+
+        if os.path.isfile(edge_truth_path):
+            os.remove(edge_truth_path)
+
+        if os.path.isfile(node_depths_path):
+            os.remove(node_depths_path)
 
     def run(self):
         graph_path, node_labels_path, edge_types_path, edge_truth_path,\
@@ -168,6 +187,9 @@ class GraphTask(Task):
         node_depths = _read_node_labeling(node_depths_path)
         parsed_node_depths = _parse_node_depth(node_depths)
         nx.set_node_attributes(nx_digraph, name='depth', values=parsed_node_depths)
+
+        self.cleanup(graph_path, node_labels_path, edge_types_path,
+                     edge_truth_path, node_depths_path)
 
         with self.output() as o:
             o.emit(nx_digraph)
