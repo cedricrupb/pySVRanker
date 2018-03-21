@@ -111,8 +111,7 @@ class GraphTask(Task):
             proc = subprocess.run([cpash_path,
                                    '-graphgenAnalysis',
                                    '-heap', self.heap.value,
-                                   '-skipRecursion', path_to_source,
-                                   '-outputpath', output_path
+                                   '-skipRecursion', path_to_source
                                    ],
                                   check=False, stdout=PIPE, stderr=PIPE,
                                   timeout=self.timeout.value)
