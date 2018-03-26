@@ -11,10 +11,12 @@ from .prepare_tasks import GraphIndexTask
 import os
 from os.path import dirname
 from .ranking_task import DefineClassTask
+from .kernel_function import select_kernel
 import csv
 from sklearn.manifold import MDS
 import matplotlib.pyplot as plt
 from pyTasks.utils import tick
+from scipy.sparse import coo_matrix, diags
 try:
     import mmh3
 except ImportError:
@@ -63,6 +65,7 @@ def indexMap(key, mapping):
 class PrepareKernelTask(Task):
     out_dir = Parameter('./gram/')
     timeout = Parameter(None)
+    rainbow = Parameter(False)
 
     def __init__(self, graph, h, D):
         self.graph = graph
@@ -89,6 +92,11 @@ class PrepareKernelTask(Task):
         return 'PrepareKernelTask(graph: %s, h: %d, D: %d)' %\
                 (self.graph, self.h, self.D)
 
+    def _hash(self, obj):
+        if not self.rainbow.value:
+            return mmh3.hash(obj)
+        return obj
+
     def _collect_labels(self, graph):
         ret = {}
         for u, v, d in graph.in_edges(data=True):
@@ -111,7 +119,7 @@ class PrepareKernelTask(Task):
             if v not in ret:
                 ret[v] = []
 
-            ret[v].append(mmh3.hash(long_edge_label))
+            ret[v].append(self._hash(long_edge_label))
         return ret
 
     def run(self):
@@ -135,7 +143,7 @@ class PrepareKernelTask(Task):
                     str(t) for t in sorted(M[n])
                 ])
                 s = str(d['label']) + s
-                label = mmh3.hash(s)
+                label = self._hash(s)
 
                 if label not in count:
                     count[label] = 0
@@ -255,24 +263,138 @@ class WLKernelTask(Task):
         for g, D in M.items():
             gI = indexMap(g, graphIndex)
             for h, N in D.items():
-                if K[h] is None:
-                    K[h] = {}
+
+                row = []
+                column = []
+                data = []
+
                 for n, c in N.items():
                     nI = indexMap(n, nodeIndex)
-                    K[h][(nI, gI)] = c
+                    row.append(gI)
+                    column.append(nI)
+                    data.append(c)
+
+                K[h] = {
+                    'row': row,
+                    'column': column,
+                    'data': data
+                }
         del M
 
         GR = None
 
         for h, D in enumerate(K):
-            phi = np.zeros((nodeIndex['counter'], graphIndex['counter']),
-                           dtype=np.uint64)
-            for (n, g), c in D.items():
-                phi[n, g] = c
+            phi = coo_matrix((D['data'], (D['row'], D['column'])),
+                             shape=(graphIndex['counter'], nodeIndex['counter']),
+                             dtype=np.uint64).tocsr()
+            del K[h]
+            T = phi.dot(phi.transpose())
             if GR is None:
-                GR = np.dot(phi.transpose(), phi)
+                GR = T
             else:
-                GR += np.dot(phi.transpose(), phi)
+                GR += T
+        del K
+
+        with self.output() as o:
+            o.emit((graphIndex, GR))
+
+
+class CustomKernelTask(Task):
+    out_dir = Parameter('./gram/')
+
+    def __init__(self, kernel_type, graphs, h, D):
+        self.kernel_type = kernel_type
+        self.graphs = graphs
+        self.h = h
+        self.D = D
+
+    def require(self):
+        return WLCollectorTask(self.graphs, self.h, self.D)
+
+    def output(self):
+        return ManagedTarget(self)
+
+    def __taskid__(self):
+        return "CustomKernelTask(%s)_%d_%d_%s" %\
+                    (self.kernel_type, self.h, self.D,
+                     str(containerHash(self.graphs, large=True)))
+
+    def __repr__(self):
+        return 'CustomKernel[%s](h: %d, D: %d)' % (self.kernel_type, self.h,
+                                                   self.D)
+
+    @staticmethod
+    def pairwise_index(D1, D2):
+        index = {}
+        O1 = {}
+
+        for d, v in D1.items():
+            O1[indexMap(d, index)] = v
+
+        O2 = {}
+
+        for d, v in D2.items():
+            O2[indexMap(d, index)] = v
+
+        V1 = np.zeros((index['counter']), dtype=np.int64)
+
+        for o, v in O1.items():
+            V1[o] = v
+
+        V2 = np.zeros((index['counter']), dtype=np.int64)
+
+        for o, v in O2.items():
+            V2[o] = v
+
+        return V1, V2
+
+    def pairwise_kernel(self, X, Y):
+        VX, VY = CustomKernelTask.pairwise_index(X, Y)
+
+        return self._kernel(VX, VY)
+
+    @staticmethod
+    def dis_to_sim(X):
+        MAX = np.full(X.shape, np.amax(X), dtype=np.float64)
+
+        return MAX - X
+
+    def run(self):
+        self._kernel = select_kernel(self.kernel_type)
+
+        with self.input()[0] as i:
+            M = i.query()
+
+        graphIndex = {}
+        K = [None] * (self.h + 1)
+
+        for g, D in M.items():
+            gI = indexMap(g, graphIndex)
+            for h, N in D.items():
+                if K[h] is None:
+                    K[h] = {}
+                K[h][gI] = N
+        del M
+
+        GR = None
+
+        for h, D in enumerate(K):
+            T_GR = np.zeros((graphIndex['counter'], graphIndex['counter']),
+                            dtype=np.float64)
+
+            for i in range(graphIndex['counter']):
+                for j in range(graphIndex['counter']):
+                    if i <= j:
+                        T_GR[i, j] = self.pairwise_kernel(D[i], D[j])
+                        T_GR[j, i] = T_GR[i, j]
+
+            if T_GR[0, 0] == 0:
+                T_GR = CustomKernelTask.dis_to_sim(T_GR)
+
+            if GR is None:
+                GR = T_GR
+            else:
+                GR += T_GR
             del K[h]
         del K
 
@@ -282,6 +404,7 @@ class WLKernelTask(Task):
 
 class NormalizedWLKernelTask(Task):
     out_dir = Parameter('./gram/')
+    custom_kernel = Parameter(None)
 
     def __init__(self, graphs, h, D):
         self.graphs = graphs
@@ -289,7 +412,11 @@ class NormalizedWLKernelTask(Task):
         self.D = D
 
     def require(self):
-        return WLKernelTask(self.graphs, self.h, self.D)
+        if self.custom_kernel.value is None:
+            return WLKernelTask(self.graphs, self.h, self.D)
+        else:
+            return CustomKernelTask(self.custom_kernel.value, self.graphs,
+                                    self.h, self.D)
 
     def output(self):
         return ManagedTarget(self)
@@ -306,13 +433,12 @@ class NormalizedWLKernelTask(Task):
         with self.input()[0] as i:
             graphIndex, GR = i.query()
 
-        GR_norm = np.zeros(GR.shape)
-        for i in range(GR.shape[0]):
-            for j in range(GR.shape[1]):
-                GR_norm[i, j] = GR[i, j] / np.sqrt(GR[i, i] * GR[j, j])
+        D = diags(1/np.sqrt(GR.diagonal()))
+
+        GR = D * GR * D
 
         with self.output() as o:
-            o.emit((graphIndex, GR_norm))
+            o.emit((graphIndex, GR))
 
 
 class ExtractKernelBagTask(Task):
