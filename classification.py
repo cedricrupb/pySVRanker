@@ -1,13 +1,46 @@
 from sklearn.svm import SVC
 from sklearn.base import BaseEstimator, ClassifierMixin
 import numpy as np
-from .bags.model import read_bag
 from sklearn.model_selection import KFold
 import random
 from sklearn.base import clone
 from sklearn.grid_search import ParameterGrid
 import math
 import time
+
+
+def select_classifier(type_id):
+    if type_id == 'majority':
+        return ProgramRankMajority
+    elif type_id == 'time':
+        return ProgramRankPredictor
+    elif type_id == 'quality':
+        return QualityProgramRankPredictor
+    else:
+        raise ValueError('Unknown classifier type %s' % type_id)
+
+
+def get_classifier_param_grid(type_id):
+    if type_id == 'majority':
+        return {}
+    elif type_id == 'time':
+        return {
+            'C_solve': [0.0001, 0.01, 0.1, 1, 10, 100],
+            'C_time': [0.0001, 0.01, 0.1, 1, 10, 100]
+        }
+    elif type_id == 'quality':
+        return {
+            'C_solve': [0.0001, 0.01, 0.1, 1, 10, 100]
+        }
+    else:
+        raise ValueError('Unknown classifier type %s' % type_id)
+
+
+def self_product(X):
+    for i, x in enumerate(X):
+        for j, y in enumerate(X):
+            if i < j:
+                yield (x, y)
 
 
 def incr(d, k, i=1):
@@ -281,98 +314,121 @@ class ProgramRankMajority(BaseEstimator, ClassifierMixin):
         return score.mean()
 
 
-def kfold(clf, X, y, folds=10, shuffle=True):
-    scores = []
-    loo = KFold(10, shuffle=shuffle, random_state=random.randint(0, 100))
-    for train_index, test_index in loo.split(np.arange(len(y))):
+class QualityProgramRankPredictor(BaseEstimator, ClassifierMixin):
 
-        X_train, X_test = X[train_index][:, train_index], X[test_index][:, train_index]
-        y_train, y_test = y[train_index], y[test_index]
+    def __init__(self, C_solve=1.0):
+        self.C_solve = C_solve
 
-        Clf = clone(clf)
-        clf.fit(X_train, y_train)
+    def _check_y(self, y):
+        for _y in y:
+            for k, v in _y.items():
+                if 'solve' not in v:
+                    raise ValueError('Missing entry \'solve\'')
+                if 'time' not in v:
+                    raise ValueError('Missing entry \'time\'')
 
-        y_test = [_y[0] for _y in rank_y(y_test)]
-        score = clf.score(X_test, y_test)
-        scores.append(score)
+    def _init_classifier(self):
+        self._classifier = {}
 
-    return np.mean(scores), np.std(scores)
+        for i, t in enumerate(self._tools):
+            self._classifier[t] = MajorityOrSVC(self.C_solve)
 
+    def _prep_y(self, y):
+        out_y = []
+        for _y in y:
+            d = {}
+            out_y.append(d)
+            for i, t in enumerate(_y):
+                d[t] = _y[t]['solve']
 
-def grid_prediction_perform(X, y, C=[0.001, 0.01, 0.1, 1, 10, 100, 1000], folds=10, shuffle=True):
-    param_grid = {'C_solve': C,
-                  'C_time': C}
+        return out_y
 
-    max_mean = -math.inf
-    buff_std = 0
-    max_param = None
-    for params in ParameterGrid(param_grid):
+    def fit(self, X, y):
+        self._check_y(y)
 
-        clf = ProgramRankPredictor(C_solve=params['C_solve'],
-                                   C_time=params['C_time'])
+        quality = {}
 
-        mean, std = kfold(clf, X, y, folds, shuffle)
+        self._tools = set([])
+        for _y in y:
+            for k, v in _y.items():
+                self._tools.add(k)
+                if v['solve'] == 'correct':
+                    self._incr(quality, k)
 
-        if mean > max_mean:
-            max_mean = mean
-            buff_std = std
-            max_param = params
+        norm = len(y)
+        self._quality = {k: (v/norm) for k, v in quality.items()}
 
-    return max_param, max_mean, buff_std
+        self._tools = list(self._tools)
 
+        self._init_classifier()
 
-if __name__ == '__main__':
-    path = '/Users/cedricrichter/Documents/Arbeit/Ranking/bootstrap-scripts/gram/ExtractKernelEntitiesTask_0_5_-1159164113_time.json'
-    path_1 = '/Users/cedricrichter/Documents/Arbeit/Ranking/bootstrap-scripts/gram/ExtractKernelEntitiesTask_1_5_-1159164113_time.json'
+        y = self._prep_y(y)
 
-    bag_0 = read_bag(path)
-    bag_1 = read_bag(path_1)
+        for t, c in self._classifier.items():
+            act_y = np.array([_y[t] for _y in y])
+            c.fit(X, act_y)
 
-    bag = bag_0 + bag_1
+    def _incr(self, d, k, i=1):
+        if k not in d:
+            d[k] = 0
+        d[k] += i
 
-    gram_time = time.time()
-    gI, X = bag.normalized_gram()
-    gram_time = (time.time() - gram_time) / len(gI)
+    def predict_rank(self, X):
+        prediction = {}
 
-    y = np.array(bag.indexed_labels(gI))
-    times = bag.indexed_times(gI)
+        for k, c in self._classifier.items():
+            prediction[k] = c.predict(X)
 
-    scores = []
-    test_times = []
-    train_times = []
-    loo = KFold(10, shuffle=True, random_state=random.randint(0, 100))
-    for train_index, test_index in loo.split(np.arange(len(y))):
+        votes = []
+        for _ in range(len(X)):
+            votes.append({})
 
-        X_train, X_test = X[train_index][:, train_index], X[test_index][:, train_index]
-        y_train, y_test = y[train_index], y[test_index]
+        for (t1, t2) in self_product(self._tools):
+            p1 = prediction[t1]
+            p2 = prediction[t2]
 
-        train_time = 0.0
-        for index in train_index:
-            train_time += times[index] + gram_time
+            for i, d in enumerate(votes):
+                l1 = p1[i] == 'correct'
+                l2 = p2[i] == 'correct'
+                if l1 and not l2:
+                    self._incr(d, t1)
+                    self._incr(d, t2, 0)
+                elif l2 and not l1:
+                    self._incr(d, t2)
+                    self._incr(d, t1, 0)
+                else:
+                    q_t1 = self._quality[t1]
+                    q_t2 = self._quality[t2]
+                    if q_t1 <= q_t2:
+                        self._incr(d, t1)
+                        self._incr(d, t2, 0)
+                    else:
+                        self._incr(d, t2)
+                        self._incr(d, t1, 0)
 
-        params, mean, std = grid_prediction_perform(X_train, y_train)
-        print(params)
-        print('%0.2f (Std: %0.4f)' % (mean, 2*std))
+        y = [None] * len(X)
 
-        clf = ProgramRankPredictor(C_solve=params['C_solve'],
-                                   C_time=params['C_time'])
-        start = time.time()
-        clf.fit(X_train, y_train)
-        train_time += (time.time() - start)
+        for i, v in enumerate(votes):
+            y[i] = [
+                C[0] for C in sorted(
+                    [(k, c) for k, c in v.items()],
+                    key=lambda x: x[1],
+                    reverse=True
+                )
+            ]
 
-        start = time.time()
-        y_test = [_y[0] for _y in rank_y(y_test)]
-        score = clf.score(X_test, y_test)
-        test_time_clf = (time.time() - start) / len(y)
+        return y
 
-        test_time = []
-        for index in test_index:
-            test_time.append(times[index] + gram_time + test_time_clf)
+    def predict(self, X):
+        ranks = self.predict_rank(X)
+        return [r[0] for r in ranks]
 
-        scores.append(score)
-        train_times.append(train_time)
-        test_times.extend(test_time)
+    def score(self, X, y):
+        score = np.zeros(len(y))
 
-    print('Test: %0.2f (Std: %0.4f)' % (np.mean(scores), 2*np.std(scores)))
-    print('Train time %f (Std: %2.2f)' % (np.mean(train_times), 2*np.std(train_times)))
-    print('Test time %f (Std: %2.2f)' % (np.mean(test_times), 2*np.std(test_times)))
+        y_pred = self.predict(X)
+        for i, _y in enumerate(y):
+            if y_pred[i] == _y:
+                score[i] = 1
+
+        return score.mean()

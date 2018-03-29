@@ -2,7 +2,7 @@ import json
 import re
 import numpy as np
 from scipy.sparse import coo_matrix, diags
-from tqdm import tqdm
+from tqdm import trange
 
 
 def detect_category(path):
@@ -41,7 +41,7 @@ def read_bag(path):
     with open(path, 'r') as o:
         jsonBag = json.load(o)
 
-    return WLProgramBag(content=jsonBag)
+    return ProgramBags(content=jsonBag)
 
 
 def normalize_gram(GR):
@@ -51,12 +51,15 @@ def normalize_gram(GR):
     return D * GR * D
 
 
-class WLProgramBag:
+class ProgramBags:
 
     def __init__(self, content={}, init_bags={}, init_categories={}):
         self.bags = init_bags
         self.categories = init_categories
+        self.graphIndex = {}
+        self.nodeIndex = {}
         self._parse_content(content)
+        self._index_bags()
 
     def _parse_content(self, content):
         for k, B in content.items():
@@ -68,6 +71,10 @@ class WLProgramBag:
             self.categories[category].append(k)
             self.bags[k] = B
 
+    def _index_bags(self):
+        for k in self.bags:
+            indexMap(k, self.graphIndex)
+
     def get_categories(self):
         return list(self.categories.keys())
 
@@ -77,9 +84,9 @@ class WLProgramBag:
         for k, v in categories.items():
             flat.extend(v)
         bags = {k: self.bags[k] for k in flat}
-        return WLProgramBag(init_bags=bags, init_categories=categories)
+        return ProgramBags(init_bags=bags, init_categories=categories)
 
-    def _features(self, graphIndex={}, nodeIndex={}):
+    def features(self):
 
         row = []
         column = []
@@ -87,25 +94,23 @@ class WLProgramBag:
 
         K = {}
         for ID, entry in self.bags.items():
-            gI = indexMap(ID, graphIndex)
+            gI = indexMap(ID, self.graphIndex)
             for n, c in entry['kernel_bag'].items():
-                nI = indexMap(n, nodeIndex)
+                nI = indexMap(n, self.nodeIndex)
                 row.append(gI)
                 column.append(nI)
                 data.append(c)
 
         phi = coo_matrix((data, (row, column)),
-                         shape=(graphIndex['counter'], nodeIndex['counter']),
+                         shape=(self.graphIndex['counter'],
+                                self.nodeIndex['counter']),
                          dtype=np.uint64)
 
-        return graphIndex, nodeIndex, phi.tocsr()
+        return phi.tocsr()
 
-    def features(self, graphIndex={}, nodeIndex={}):
-        return self._features(graphIndex, nodeIndex)
-
-    def _dot_gram(self, graphIndex={}):
-        graphIndex, _, phi = self._features(graphIndex)
-        return graphIndex, phi.dot(phi.transpose())
+    def _dot_gram(self):
+        phi = self.features()
+        return phi.dot(phi.transpose())
 
     @staticmethod
     def pairwise_index(D1, D2):
@@ -134,7 +139,7 @@ class WLProgramBag:
 
     @staticmethod
     def pairwise_kernel(kernel, X, Y):
-        VX, VY = WLProgramBag.pairwise_index(X, Y)
+        VX, VY = ProgramBags.pairwise_index(X, Y)
 
         return kernel(VX, VY)
 
@@ -144,42 +149,39 @@ class WLProgramBag:
 
         return MAX - X
 
-    def _custom_gram(self, kernel, graphIndex={}):
+    def _custom_gram(self, kernel):
         K = {}
 
         for ID, entry in self.bags.items():
-            gI = indexMap(ID, graphIndex)
+            gI = indexMap(ID, self.graphIndex)
             K[gI] = entry['kernel_bag']
 
-        T_GR = np.zeros((graphIndex['counter'], graphIndex['counter']),
+        T_GR = np.zeros((self.graphIndex['counter'],
+                         self.graphIndex['counter']),
                         dtype=np.float64)
 
-        for i in tqdm(np.arange(graphIndex['counter'])):
-            for j in range(graphIndex['counter']):
+        for i in trange(self.graphIndex['counter']):
+            for j in range(self.graphIndex['counter']):
                 if i <= j:
-                    T_GR[i, j] = WLProgramBag.pairwise_kernel(kernel,
-                                                              K[i], K[j])
+                    T_GR[i, j] = ProgramBags.pairwise_kernel(kernel,
+                                                             K[i], K[j])
                     T_GR[j, i] = T_GR[i, j]
 
         if T_GR[0, 0] == 0:
-            T_GR = WLProgramBag.dis_to_sim(T_GR)
+            T_GR = ProgramBags.dis_to_sim(T_GR)
 
-        return graphIndex, T_GR
+        return T_GR
 
-    def gram(self, kernel=None, graphIndex={}):
+    def gram(self, kernel=None):
         if kernel is None:
-            index, GR = self._dot_gram(graphIndex)
+            GR = self._dot_gram()
         else:
-            index, GR = self._custom_gram(kernel, graphIndex)
+            GR = self._custom_gram(kernel)
 
-        return index, GR
+        return GR
 
-    def normalized_gram(self, kernel=None, graphIndex={}):
-        index, GR = self.gram(kernel, graphIndex)
-
-        GR_norm = normalize_gram(GR)
-
-        return index, GR_norm
+    def normalized_gram(self, kernel=None):
+        return normalize_gram(self.gram(kernel))
 
     def labels(self, indices=None, is_category=False):
         if indices is None:
@@ -197,8 +199,8 @@ class WLProgramBag:
 
         return out
 
-    def indexed_labels(self, graphIndex):
-        graphIndex = graphIndex.copy()
+    def indexed_labels(self):
+        graphIndex = self.graphIndex.copy()
         counter = graphIndex['counter']
         del graphIndex['counter']
 
@@ -229,8 +231,8 @@ class WLProgramBag:
 
         return out
 
-    def indexed_times(self, graphIndex):
-        graphIndex = graphIndex.copy()
+    def indexed_times(self):
+        graphIndex = self.graphIndex.copy()
         counter = graphIndex['counter']
         del graphIndex['counter']
 
@@ -286,13 +288,8 @@ class WLProgramBag:
 
         return out_y
 
-    def ranking(self, graphIndex):
-        return self._prep_y(self.indexed_labels(graphIndex))
-
-    def __add__(self, other):
-        if isinstance(other, WLProgramUnion):
-            return WLProgramUnion(other, self)
-        return WLProgramUnion(self, other)
+    def ranking(self):
+        return self._prep_y(self.indexed_labels())
 
     def __len__(self):
         return len(self.bags)
@@ -306,76 +303,5 @@ class WLProgramBag:
             if func(D):
                 bags[k] = Bag
 
-        return WLProgramBag(init_bags=bags,
-                            init_categories=self.categories)
-
-
-class WLProgramUnion(WLProgramBag):
-
-    def __init__(self, bag, union_bag):
-        super().__init__(init_bags=union_bag.bags, init_categories=union_bag.categories)
-        self._bag = bag
-        self._union_bag = union_bag
-
-    def features(self, graphIndex={}):
-        out = []
-        out_node_index = []
-        graphIndex, nodeIndex, features = super()._features(graphIndex)
-        out.append(features)
-        out_node_index.append(nodeIndex)
-        graphIndex, nodeIndices, features = self._bag.features()
-        if isinstance(self._bag, WLProgramUnion):
-            out.extend(features)
-            out_node_index.extend(nodeIndices)
-        else:
-            out.append(features)
-            out_node_index.append(nodeIndices)
-        return graphIndex, out_node_index, out
-
-    def gram(self, kernel=None, graphIndex={}):
-        graphIndex, gram1 = super().gram(kernel, graphIndex)
-        graphIndex, gram2 = self._bag.gram(kernel, graphIndex)
-
-        return graphIndex, gram1 + gram2
-
-    def get_category(self, category):
-        return WLProgramUnion(
-            self._bag.get_category(category),
-            self._union_bag.get_category(category)
-        )
-
-    def times(self, indices=None, is_category=False):
-        times_bag = self._bag.times(indices, is_category)
-        times_union = super().times(indices, is_category)
-
-        out = {}
-        for k, t in times_bag.items():
-            if k in times_union:
-                t = max(t, times_union[k])
-            out[k] = t
-        return out
-
-    def __add__(self, other):
-        if isinstance(other, WLProgramUnion):
-            out = WLProgramUnion(self, other._union_bag)
-            return out + other._bag
-        else:
-            return WLProgramUnion(self, other)
-
-    def __len__(self):
-        return max(len(self._bag), len(self._union_bag))
-
-    def filter(self, func):
-        return WLProgramUnion(
-            self._bag.filter(func),
-            self._union_bag.filter(func)
-        )
-
-
-if __name__ == '__main__':
-    path = '/Users/cedricrichter/Documents/Arbeit/Ranking/bootstrap-scripts/gram/ExtractKernelEntitiesTask_0_5_1994972785.json'
-
-    bag = read_bag(path)
-
-    gI, nI, feat = bag.features()
-    print(bag.indexed_labels(gI))
+        return ProgramBags(init_bags=bags,
+                           init_categories=self.categories)
