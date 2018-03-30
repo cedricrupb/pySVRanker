@@ -9,6 +9,8 @@ def select_score(type_id, map_graph_to_labels, map_graph_to_times):
         return make_svcomp_score(map_graph_to_labels)
     elif type_id == 'time':
         return make_time_score(map_graph_to_labels, map_graph_to_times)
+    elif type_id == 'time_count':
+        return make_time_count_score(map_graph_to_labels, map_graph_to_times)
     elif type_id == 'inv_time':
         return make_inv_time_score(map_graph_to_labels, map_graph_to_times)
     else:
@@ -70,6 +72,23 @@ def make_time_score(map_graph_to_labels, map_graph_to_times):
         prediction_time = time + label[prediction]['time']
         full_time = sum([v['time'] for v in label.values()])
         return prediction_time / full_time
+
+    return time_score
+
+
+def make_time_count_score(map_graph_to_labels, map_graph_to_times):
+
+    def time_score(prediction_ranking, expected_ranking, graph):
+        if graph is None:
+            raise ValueError('Need graph for calculation')
+
+        label = map_graph_to_labels[graph]
+        time = map_graph_to_times[graph]
+
+        prediction = prediction_ranking[0]
+        prediction_time = time + label[prediction]['time']
+        full_time = sum([v['time'] for v in label.values()])
+        return 1 if prediction_time < full_time else 0
 
     return time_score
 
