@@ -1,3 +1,7 @@
+import matplotlib
+matplotlib.use('Agg')
+
+
 from .bag import ProgramBags, read_bag, normalize_gram, enumerateable, indexMap
 from pyTasks.task import Task, Parameter
 from pyTasks.task import Optional, containerHash
