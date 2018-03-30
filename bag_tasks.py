@@ -67,25 +67,51 @@ def pareto_front(knownSet, entity, key):
     return front
 
 
-class BagGraphIndexTask(Task):
+class BagLoadingTask(Task):
     out_dir = Parameter('./gram/')
+    pattern = Parameter('./task_%d_%d.json')
 
-    def __init__(self, graphs, h, D):
-        self.graphs = graphs
+    def __init__(self, h, D):
         self.h = h
         self.D = D
 
     def require(self):
-        return ExtractKernelEntitiesTask(self.graphs,
-                                         self.h,
-                                         self.D)
+        return None
 
     def __taskid__(self):
-        return 'BagGraphIndexTask_%d_%s' % (self.D,
-                                               str(
-                                                containerHash(self.graphs)
-                                                )
-                                            )
+        return 'BagLoadingTask_%d_%d' % (self.h, self.D)
+
+    def output(self):
+        path = self.out_dir.value + self.__taskid__() + '.json'
+        return CachedTarget(
+            LocalTarget(path, service=JsonService)
+        )
+
+    def run(self):
+        src_path = self.pattern.value % (self.h, self.D)
+        target = self.output()
+        target_path = target.sandBox + target.path
+
+        directory = os.path.dirname(target_path)
+
+        if not os.path.exists(directory):
+            os.makedirs(directory)
+
+        os.link(src_path, target_path)
+
+
+class BagGraphIndexTask(Task):
+    out_dir = Parameter('./gram/')
+
+    def __init__(self, h, D):
+        self.h = h
+        self.D = D
+
+    def require(self):
+        return BagLoadingTask(self.h, self.D)
+
+    def __taskid__(self):
+        return 'BagGraphIndexTask_%d' % (self.D)
 
     def output(self):
         path = self.out_dir.value + self.__taskid__() + '.json'
@@ -109,30 +135,22 @@ class BagGraphIndexTask(Task):
 class BagFeatureTask(Task):
     out_dir = Parameter('./gram/')
 
-    def __init__(self, graphs, h, D, category=None):
-        self.graphs = graphs
+    def __init__(self, h, D, category=None):
         self.h = h
         self.D = D
         self.category = category
 
     def require(self):
-        return [BagGraphIndexTask(self.graphs,
-                                  self.h,
+        return [BagGraphIndexTask(self.h,
                                   self.D),
-                ExtractKernelEntitiesTask(self.graphs,
-                                          self.h,
-                                          self.D)]
+                BagLoadingTask(self.h, self.D)]
 
     def __taskid__(self):
         cat = 'all'
         if self.category is not None:
             cat = '_'.join(enumerateable(self.category))
 
-        return 'BagFeatureTask_%d_%d_%s_%s' % (self.h, self.D,
-                                               str(
-                                                containerHash(self.graphs)
-                                                ), cat
-                                               )
+        return 'BagFeatureTask_%d_%d_%s' % (self.h, self.D, cat)
 
     def output(self):
         path = self.out_dir.value + self.__taskid__() + '.json'
@@ -175,31 +193,23 @@ class BagFeatureTask(Task):
 class BagGramTask(Task):
     out_dir = Parameter('./gram/')
 
-    def __init__(self, graphs, h, D, category=None, kernel='linear'):
-        self.graphs = graphs
+    def __init__(self, h, D, category=None, kernel='linear'):
         self.h = h
         self.D = D
         self.category = category
         self.kernel = kernel
 
     def require(self):
-        return [BagGraphIndexTask(self.graphs,
-                                  self.h,
+        return [BagGraphIndexTask(self.h,
                                   self.D),
-                ExtractKernelEntitiesTask(self.graphs,
-                                          self.h,
-                                          self.D)]
+                BagLoadingTask(self.h, self.D)]
 
     def __taskid__(self):
         cat = 'all'
         if self.category is not None:
             cat = '_'.join(enumerateable(self.category))
 
-        return 'BagGramTask_%d_%d_%s_%s_%s' % (self.h, self.D,
-                                               str(
-                                                containerHash(self.graphs)
-                                                ), self.kernel, cat
-                                               )
+        return 'BagGramTask_%d_%d_%s_%s' % (self.h, self.D, self.kernel, cat)
 
     def output(self):
         path = self.out_dir.value + self.__taskid__() + '.json'
@@ -241,8 +251,7 @@ class BagGramTask(Task):
 class BagSumGramTask(Task):
     out_dir = Parameter('./gram/')
 
-    def __init__(self, graphs, hSet, D, category=None, kernel='linear'):
-        self.graphs = graphs
+    def __init__(self, hSet, D, category=None, kernel='linear'):
         self.hSet = hSet
         self.D = D
         self.category = category
@@ -250,7 +259,7 @@ class BagSumGramTask(Task):
 
     def require(self):
         return [
-            BagGramTask(self.graphs, h, self.D, self.category, self.kernel)
+            BagGramTask(h, self.D, self.category, self.kernel)
             for h in self.hSet
         ]
 
@@ -259,14 +268,11 @@ class BagSumGramTask(Task):
         if self.category is not None:
             cat = '_'.join(enumerateable(self.category))
 
-        return 'BagSumGramTask_%s_%d_%s_%s_%s' % (str(
+        return 'BagSumGramTask_%s_%d_%s_%s' % (str(
                                                       containerHash(self.hSet)
                                                       ),
-                                                  self.D,
-                                                  str(
-                                                      containerHash(self.graphs)
-                                                      ), self.kernel, cat
-                                                  )
+                                               self.D, self.kernel, cat
+                                               )
 
     def output(self):
         path = self.out_dir.value + self.__taskid__() + '.json'
@@ -276,7 +282,6 @@ class BagSumGramTask(Task):
 
     def run(self):
         GR = None
-
 
         for inp in self.input():
             with inp as i:
@@ -304,8 +309,7 @@ class BagSumGramTask(Task):
 class BagNormalizeGramTask(Task):
     out_dir = Parameter('./gram/')
 
-    def __init__(self, graphs, h, D, category=None, kernel='linear'):
-        self.graphs = graphs
+    def __init__(self, h, D, category=None, kernel='linear'):
         self.h = h
         self.D = D
         self.category = category
@@ -314,10 +318,10 @@ class BagNormalizeGramTask(Task):
     def require(self):
         hSet = [h for h in enumerateable(self.h)]
         if len(hSet) == 1:
-            return BagGramTask(self.graphs, hSet[0], self.D,
+            return BagGramTask(hSet[0], self.D,
                                self.category, self.kernel)
         else:
-            return BagSumGramTask(self.graphs, hSet, self.D,
+            return BagSumGramTask(hSet, self.D,
                                   self.category, self.kernel)
 
     def __taskid__(self):
@@ -325,14 +329,11 @@ class BagNormalizeGramTask(Task):
         if self.category is not None:
             cat = '_'.join(enumerateable(self.category))
 
-        return 'BagNormGramTask_%s_%d_%s_%s_%s' % (str(
+        return 'BagNormGramTask_%s_%d_%s_%s' % (str(
                                                       containerHash(self.h)
                                                       ),
-                                                   self.D,
-                                                   str(
-                                                      containerHash(self.graphs)
-                                                      ), self.kernel, cat
-                                                   )
+                                                self.D, self.kernel, cat
+                                                )
 
     def output(self):
         path = self.out_dir.value + self.__taskid__() + '.json'
@@ -362,14 +363,13 @@ class BagClassifierEvalutionTask(Task):
     out_dir = Parameter('./eval/')
 
     def __init__(self, clf_type, clf_params,
-                 graphs, h, D, scores,
+                 h, D, scores,
                  train_index, test_index,
                  category=None,
                  kernel='linear'):
         self.clf_type = clf_type
         self.clf_params = clf_params
         self.kernel = kernel
-        self.graphs = graphs
         self.h = h
         self.D = D
         self.scores = scores
@@ -379,10 +379,8 @@ class BagClassifierEvalutionTask(Task):
 
     def require(self):
         h = [h for h in range(self.h+1)]
-        return [ExtractKernelEntitiesTask(self.graphs,
-                                          self.h,
-                                          self.D),
-                BagNormalizeGramTask(self.graphs, h, self.D, self.category,
+        return [BagLoadingTask(self.h, self.D),
+                BagNormalizeGramTask(h, self.D, self.category,
                                      self.kernel)]
 
     def __taskid__(self):
@@ -421,15 +419,6 @@ class BagClassifierEvalutionTask(Task):
 
         return scores
 
-    def _index(self, graphIndex):
-        train_index = [
-            graphIndex[k] for k in self.train_index
-        ]
-        test_index = [
-            graphIndex[k] for k in self.test_index
-        ]
-        return train_index, test_index
-
     @staticmethod
     def _index_map(index, mapping):
         V = [
@@ -451,7 +440,8 @@ class BagClassifierEvalutionTask(Task):
             m[0] for m in sorted(list(graphIndex.items()), key=lambda x: x[1])
         ]
 
-        train_index, test_index = self._index(graphIndex)
+        train_index = self.train_index
+        test_index = self.test_index
 
         X_train, X_test = X[train_index][:, train_index], X[test_index][:, train_index]
         y_train, y_test = y[train_index], y[test_index]
@@ -491,14 +481,14 @@ class BagKFoldTask(Task):
     out_dir = Parameter('./eval/')
 
     def __init__(self, clf_type, clf_params,
-                 graphs, h, D, scores,
+                 graph_count, h, D, scores,
                  subset_index=None,
                  category=None,
                  kernel='linear'):
         self.clf_type = clf_type
         self.clf_params = clf_params
         self.kernel = kernel
-        self.graphs = graphs
+        self.graph_count = graph_count
         self.h = h
         self.D = D
         self.scores = scores
@@ -507,7 +497,7 @@ class BagKFoldTask(Task):
 
     def _index(self):
         if self.subset_index is None:
-            return self.graphs
+            return [x for x in range(self.graph_count)]
         else:
             return self.subset_index
 
@@ -518,12 +508,11 @@ class BagKFoldTask(Task):
             BagClassifierEvalutionTask(
                 self.clf_type,
                 self.clf_params,
-                self.graphs,
                 self.h,
                 self.D,
                 self.scores,
-                index[train_index].tolist(),
-                index[test_index].tolist(),
+                train_index.tolist(),
+                test_index.tolist(),
                 self.category,
                 self.kernel
             )
@@ -571,14 +560,14 @@ class BagParameterGridTask(Task):
     out_dir = Parameter('./eval/')
 
     def __init__(self, clf_type, paramGrid,
-                 graphs, scores, opt_scores,
+                 graph_count, scores, opt_scores,
                  subset_index=None,
                  category=None,
                  kernel='linear'):
         self.clf_type = clf_type
         self.paramGrid = paramGrid
         self.kernel = kernel
-        self.graphs = graphs
+        self.graph_count = graph_count
         self.scores = scores
         self.opt_scores = opt_scores
         self.subset_index = subset_index
@@ -595,7 +584,7 @@ class BagParameterGridTask(Task):
                 BagKFoldTask(
                     self.clf_type,
                     params,
-                    self.graphs,
+                    self.graph_count,
                     h,
                     D,
                     self.scores,
@@ -645,14 +634,14 @@ class BagKParamGridTask(Task):
     out_dir = Parameter('./eval/')
 
     def __init__(self, clf_type, paramGrid,
-                 graphs, scores, opt_scores,
+                 graph_count, scores, opt_scores,
                  subset_index=None,
                  category=None,
                  kernel='linear'):
         self.clf_type = clf_type
         self.paramGrid = paramGrid
         self.kernel = kernel
-        self.graphs = graphs
+        self.graph_count = graph_count
         self.scores = scores
         self.opt_scores = opt_scores
         self.subset_index = subset_index
@@ -660,7 +649,7 @@ class BagKParamGridTask(Task):
 
     def _index(self):
         if self.subset_index is None:
-            return self.graphs
+            return [x for x in range(self.graph_count)]
         else:
             return self.subset_index
 
@@ -671,10 +660,10 @@ class BagKParamGridTask(Task):
             BagParameterGridTask(
                 self.clf_type,
                 self.paramGrid,
-                self.graphs,
+                self.graph_count,
                 self.scores,
                 self.opt_scores,
-                subset_index=index[train_index].tolist(),
+                subset_index=train_index.tolist(),
                 category=self.category,
                 kernel=self.kernel
             )
@@ -710,8 +699,7 @@ class BagKParamGridTask(Task):
 class BagMDSTask(Task):
         out_dir = Parameter('./gram/')
 
-        def __init__(self, graphs, h, D, category=None, kernel='linear'):
-            self.graphs = graphs
+        def __init__(self, h, D, category=None, kernel='linear'):
             self.h = h
             self.D = D
             self.category = category
@@ -719,10 +707,8 @@ class BagMDSTask(Task):
 
         def require(self):
             h = [h for h in range(self.h+1)]
-            return [ExtractKernelEntitiesTask(self.graphs,
-                                              self.h,
-                                              self.D),
-                    BagNormalizeGramTask(self.graphs, h, self.D, self.category,
+            return [BagLoadingTask(self.h, self.D),
+                    BagNormalizeGramTask(h, self.D, self.category,
                                          self.kernel)]
 
         def __taskid__(self):
@@ -730,11 +716,9 @@ class BagMDSTask(Task):
             if self.category is not None:
                 cat = '_'.join(enumerateable(self.category))
 
-            return 'BagMDSTask_%d_%d_%s_%s_%s' % (self.h, self.D,
-                                                   str(
-                                                    containerHash(self.graphs)
-                                                    ), self.kernel, cat
-                                                   )
+            return 'BagMDSTask_%d_%d_%s_%s' % (self.h, self.D, self.kernel,
+                                               cat
+                                               )
 
         def output(self):
             return FileTarget(self.out_dir.value+self.__taskid__()+'.png')
