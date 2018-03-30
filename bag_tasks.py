@@ -82,22 +82,13 @@ class BagLoadingTask(Task):
         return 'BagLoadingTask_%d_%d' % (self.h, self.D)
 
     def output(self):
-        path = self.out_dir.value + self.__taskid__() + '.json'
+        src_path = self.pattern.value % (self.h, self.D)
         return CachedTarget(
-            LocalTarget(path, service=JsonService)
+            LocalTarget(src_path, service=JsonService)
         )
 
     def run(self):
-        src_path = self.pattern.value % (self.h, self.D)
-        target = self.output()
-        target_path = target.sandBox + target.path
-
-        directory = os.path.dirname(target_path)
-
-        if not os.path.exists(directory):
-            os.makedirs(directory)
-
-        os.link(src_path, target_path)
+        pass
 
 
 class BagGraphIndexTask(Task):
@@ -540,7 +531,8 @@ class BagKFoldTask(Task):
         for inp in self.input():
             with inp as i:
                 R = i.query()
-                del R['parameter']
+                if 'parameter' in R:
+                    del R['parameter']
                 results.append(R)
 
         R = mean_std(results)
