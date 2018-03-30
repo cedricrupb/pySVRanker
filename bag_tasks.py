@@ -496,7 +496,7 @@ class BagKFoldTask(Task):
         index = np.array(self._index())
         loo = KFold(self.k.value, shuffle=True, random_state=random.randint(0, 100))
         return [
-            BagClassifierEvalutionTask(
+            Optional(BagClassifierEvalutionTask(
                 self.clf_type,
                 self.clf_params,
                 self.h,
@@ -506,7 +506,7 @@ class BagKFoldTask(Task):
                 test_index.tolist(),
                 self.category,
                 self.kernel
-            )
+            ))
             for train_index, test_index in loo.split(index)
         ]
 
@@ -529,6 +529,8 @@ class BagKFoldTask(Task):
     def run(self):
         results = []
         for inp in self.input():
+            if inp is None:
+                continue
             with inp as i:
                 R = i.query()
                 if 'parameter' in R:
