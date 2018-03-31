@@ -2,7 +2,10 @@ import json
 import re
 import numpy as np
 from scipy.sparse import coo_matrix, diags
-from tqdm import trange
+from tqdm import tqdm
+from .kernel_function import jaccard
+import time
+import traceback
 
 
 def detect_category(path):
@@ -160,11 +163,14 @@ class ProgramBags:
                          self.graphIndex['counter']),
                         dtype=np.float64)
 
-        for i in trange(self.graphIndex['counter']):
-            for j in range(self.graphIndex['counter']):
+        E = sorted(list(K.keys()))
+
+        for i in tqdm(E):
+            for j in E:
                 if i <= j:
                     T_GR[i, j] = ProgramBags.pairwise_kernel(kernel,
                                                              K[i], K[j])
+
                     T_GR[j, i] = T_GR[i, j]
 
         if T_GR[0, 0] == 0:
@@ -175,6 +181,8 @@ class ProgramBags:
     def gram(self, kernel=None):
         if kernel is None:
             GR = self._dot_gram()
+        elif kernel.__name__ == 'jaccard_kernel':
+            GR = jaccard(self.features())
         else:
             GR = self._custom_gram(kernel)
 
