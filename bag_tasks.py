@@ -1,7 +1,5 @@
 import matplotlib
 matplotlib.use('Agg')
-
-
 from .bag import ProgramBags, read_bag, normalize_gram, enumerateable, indexMap
 from pyTasks.task import Task, Parameter
 from pyTasks.task import Optional, containerHash
@@ -417,9 +415,10 @@ class BagClassifierEvalutionTask(Task):
     @staticmethod
     def _index_map(index, mapping):
         V = [
-            m[1] for m in sorted(list(mapping.items()), key=lambda x: index[x[0]])
+            m for m in sorted(list(mapping.items()), key=lambda x: index[x[0]])
         ]
-        return np.array(V)
+        graphs = [m[0] for m in V]
+        return graphs, np.array([m[1] for m in V])
 
     def run(self):
         with self.input()[1] as i:
@@ -430,10 +429,7 @@ class BagClassifierEvalutionTask(Task):
 
         y, times = self._build_maps()
         scores = self._build_score(y, times)
-        y = BagClassifierEvalutionTask._index_map(graphIndex, y)
-        graphs = [
-            m[0] for m in sorted(list(graphIndex.items()), key=lambda x: x[1])
-        ]
+        graphs, y = BagClassifierEvalutionTask._index_map(graphIndex, y)
 
         train_index = self.train_index
         test_index = self.test_index
