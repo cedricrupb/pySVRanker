@@ -18,6 +18,7 @@ from sklearn.grid_search import ParameterGrid
 from sklearn.manifold import MDS
 import matplotlib.pyplot as plt
 import os
+from scipy.sparse import issparse
 
 
 def is_dict(D):
@@ -30,7 +31,7 @@ def is_dict(D):
 
 def mean_std(L):
     O = {}
-    for k in L[0]:
+    for k in L:
         coll = [l[k] for l in L]
         if is_dict(coll[0]):
             coll = mean_std(coll)
@@ -230,6 +231,8 @@ class BagGramTask(Task):
             if kernel is None:
                 raise ValueError('Unknown kernel %s' % self.kernel)
             gram = bag.gram(kernel=kernel)
+            if issparse(gram):
+                gram = gram.toarray()
 
         data = gram.tolist()
 
