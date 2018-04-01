@@ -6,7 +6,7 @@ from pyTasks.task import Optional, containerHash
 from pyTasks.target import CachedTarget, LocalTarget
 from pyTasks.target import JsonService, FileTarget
 from .gram_tasks import ExtractKernelEntitiesTask
-from .kernel_function import select_kernel
+from .kernel_function import select_full
 import numpy as np
 from .classification import select_classifier, rank_y
 from .rank_scores import select_score
@@ -37,6 +37,7 @@ def mean_std(L):
         else:
             coll = {
                 'mean': np.mean(coll),
+                'median': np.median(coll),
                 'std': np.std(coll)
             }
         O[k] = coll
@@ -225,7 +226,7 @@ class BagGramTask(Task):
         if self.kernel == 'linear':
             gram = bag.gram().toarray()
         else:
-            kernel = select_kernel(self.kernel)
+            kernel = select_full(self.kernel)
             if kernel is None:
                 raise ValueError('Unknown kernel %s' % self.kernel)
             gram = bag.gram(kernel=kernel)
@@ -277,6 +278,7 @@ class BagSumGramTask(Task):
         GR = None
 
         for inp in self.input():
+            print(inp.path)
             with inp as i:
                 D = i.query()
                 gI = D['graphIndex']

@@ -3,17 +3,51 @@ from scipy.spatial.distance import euclidean
 from scipy.sparse import coo_matrix
 from sklearn.metrics.pairwise import rbf_kernel
 from tqdm import trange
+from sklearn.feature_extraction.text import TfidfTransformer
+from scipy.sparse import lil_matrix
+
+_divider_ = [':', '/', '\\', '-->', '->']
 
 
-def jaccard_kernel(X, Y):
-    min_sum = np.minimum(X, Y).sum()
-    max_sum = np.maximum(X, Y).sum()
+def is_pairwise(kernel):
+    try:
+        X = lil_matrix(np.zeros((2, 1)))
+        kernel(X, X)
+        return True
+    except Exception:
+        return False
 
-    return min_sum / max_sum
+
+def is_absolute(kernel):
+    try:
+        X = lil_matrix(np.zeros((2, 2)))
+        kernel(X)
+        return True
+    except Exception:
+        return False
 
 
-def linear_kernel(X, Y):
-    return np.dot(np.transpose(X), Y)
+def split_string(S):
+    divider = None
+    for d in _divider_:
+        if d in S:
+            divider = d
+            break
+    if divider is None:
+        return [S]
+
+    return S.split(divider)
+
+
+def make_chain(preprocessors, kernel):
+
+    def chain(X):
+        for P in preprocessors:
+            X = P(X)
+
+        return kernel(X)
+
+    return chain
 
 
 def select_kernel(kernel_type):
@@ -25,6 +59,36 @@ def select_kernel(kernel_type):
         return rbf_kernel
     elif kernel_type == 'linear':
         return linear_kernel
+    else:
+        raise ValueError('Unknown kernel %s' % kernel_type)
+
+
+def select_preprocessor(preprocessor_type):
+    if preprocessor_type == 'tfidf':
+        return tfidf_preprocessor
+    else:
+        raise ValueError('Unknown preprocessor %s' % preprocessor_type)
+
+
+def select_full(full_type):
+    types = split_string(full_type)
+    kernel = select_kernel(types[-1])
+
+    if is_pairwise(kernel) and len(types) > 1:
+        raise ValueError('Preprocessor are not appliable with pairwise kernels')
+
+    preprocessors = []
+
+    while len(types) > 1:
+        act = types[0]
+        types = types[1:]
+        preprocessors.append(select_preprocessor(act))
+
+    return make_chain(preprocessors, kernel)
+
+
+def linear_kernel(X):
+    return X.dot(X.transpose())
 
 
 def _jaccard_between(X, Y):
@@ -35,7 +99,7 @@ def _jaccard_between(X, Y):
     return min_sum / max_sum
 
 
-def jaccard(X):
+def jaccard_kernel(X):
     row = list(range(X.shape[0]))
     columns = list(range(X.shape[0]))
     data = [1] * X.shape[0]
@@ -55,3 +119,7 @@ def jaccard(X):
         data.extend(S)
 
     return coo_matrix((data, (row, columns))).toarray()
+
+
+def tfidf_preprocessor(X):
+    return TfidfTransformer().fit_transform(X)

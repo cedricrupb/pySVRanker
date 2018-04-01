@@ -3,9 +3,7 @@ import re
 import numpy as np
 from scipy.sparse import coo_matrix, diags
 from tqdm import tqdm
-from .kernel_function import jaccard
-import time
-import traceback
+from .kernel_function import is_pairwise, is_absolute
 
 
 def detect_category(path):
@@ -152,7 +150,7 @@ class ProgramBags:
 
         return MAX - X
 
-    def _custom_gram(self, kernel):
+    def _pairwise_gram(self, kernel):
         K = {}
 
         for ID, entry in self.bags.items():
@@ -178,11 +176,18 @@ class ProgramBags:
 
         return T_GR
 
+    def _custom_gram(self, kernel):
+        if is_pairwise(kernel):
+            return self._pairwise_gram(kernel)
+        elif is_absolute(kernel):
+            return kernel(self.features())
+        else:
+            raise ValueError('Kernel has to accept 1 (complete feature set)' +
+                             ' or 2 (pairwise 1-D) matrices')
+
     def gram(self, kernel=None):
         if kernel is None:
             GR = self._dot_gram()
-        elif kernel.__name__ == 'jaccard_kernel':
-            GR = jaccard(self.features())
         else:
             GR = self._custom_gram(kernel)
 
