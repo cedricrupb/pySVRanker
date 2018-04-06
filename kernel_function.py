@@ -6,7 +6,7 @@ from tqdm import trange
 from sklearn.feature_extraction.text import TfidfTransformer
 from scipy.sparse import lil_matrix
 
-_divider_ = [':', '/', '\\', '-->', '->']
+_divider_ = [':', '_', '/', '\\', '-->', '->']
 
 
 def is_pairwise(kernel):

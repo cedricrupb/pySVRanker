@@ -31,7 +31,7 @@ def is_dict(D):
 
 def mean_std(L):
     O = {}
-    for k in L:
+    for k in L[0]:
         coll = [l[k] for l in L]
         if is_dict(coll[0]):
             coll = mean_std(coll)
@@ -174,9 +174,9 @@ class BagFeatureTask(Task):
         out = {
             'graphIndex': bag.graphIndex,
             'nodeIndex': bag.nodeIndex,
-            'rows': NZ[0],
-            'columns': NZ[1],
-            'data': data,
+            'rows': NZ[0].tolist(),
+            'columns': NZ[1].tolist(),
+            'data': data.tolist(),
             'row_shape': shape[0],
             'column_shape': shape[1]
         }
@@ -620,6 +620,8 @@ class BagParameterGridTask(Task):
             return o
 
         for inp in self.input():
+            if inp is None:
+                continue
             with inp as i:
                 res = i.query()
             pareto = pareto_front(pareto, res, score_key)
@@ -688,6 +690,8 @@ class BagKParamGridTask(Task):
     def run(self):
         results = []
         for inp in self.input():
+            if inp is None:
+                continue
             with inp as i:
                 results.append(i.query())
 
