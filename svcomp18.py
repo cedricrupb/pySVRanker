@@ -8,8 +8,16 @@ import re
 import os
 import pandas as pd
 from tqdm import tqdm
-from .svcomp15 import PropertyType, Status, MissingPropertyTypeException
+from .svcomp15 import Status, MissingPropertyTypeException
 from .svcomp15 import MissingExpectedStatusException, InvalidDataException
+
+
+@unique
+class PropertyType(Enum):
+    unreachability = 1
+    memory_safety = 2
+    termination = 3
+    overflow = 4
 
 
 _df_cols = ['options', 'status', 'status_msg', 'cputime', 'walltime', 'mem_usage',
@@ -139,6 +147,7 @@ def _extract_property_type(vtask_path):
     unreachability_pattern = re.compile(r'CHECK\([_\s\w\(\)]+,\s*LTL\(\s*G\s*!\s*call\([_\w\s\(\)]+\)\s*\)\s*\)')
     memory_safety_pattern = re.compile(r'CHECK\([_\s\w\(\)]+,\s*LTL\(\s*G\s*valid-\w+\)\s*\)')
     termination_pattern = re.compile(r'CHECK\([_\s\w\(\)]+,\s*LTL\(\s*F\s*end\s*\)\s*\)')
+    overflow_pattern = re.compile(r'CHECK\([_\s\w\(\)]+,\s*LTL\(\s*G\s*!\s*overflow\s*\)\s*\)')
 
     root, ext = os.path.splitext(vtask_path)
     prp = root + '.prp'
@@ -155,6 +164,8 @@ def _extract_property_type(vtask_path):
         return PropertyType.memory_safety
     if termination_pattern.search(prp_file_content) is not None:
         return PropertyType.termination
+    if overflow_pattern.search(prp_file_content) is not None:
+        return PropertyType.overflow
     raise MissingPropertyTypeException('Cannot determine property type from prp file')
 
 

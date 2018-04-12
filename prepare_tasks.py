@@ -41,7 +41,7 @@ class CategoryLookupTask(Task):
                                             self.graphPaths.value,
                                             self.category,
                                             self.max_size.value,
-                                            self.benchmark_prefix.value
+                                            prefix=self.benchmark_prefix.value
                                         )
 
         assert results

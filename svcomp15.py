@@ -79,7 +79,7 @@ def svcomp_xml_to_dataframe(xml_path, max_size, prefix):
     with open(xml_path) as f:
         xml = f.read()
     path_prefix = os.path.dirname(xml_path)
-    path_prefix = os.path.abspath(path_prefix + prefix)
+    path_prefix = os.path.abspath(path_prefix + prefixs)
     root = objectify.fromstring(xml)
     df = pd.DataFrame(columns=_df_cols)
     if hasattr(root, 'sourcefile'):
