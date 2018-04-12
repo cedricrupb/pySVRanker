@@ -1,10 +1,18 @@
 from pyTasks.task import Task, Parameter
 from pyTasks.task import Optional, containerHash
 from pyTasks.target import CachedTarget, LocalTarget, JsonService, ManagedTarget
-from . import svcomp15
+from . import svcomp15, svcomp18
 import pickle
 import base64
 import re
+
+
+def select_svcomp(name):
+    if name == 'svcomp15':
+        return svcomp15
+    elif name == 'svcomp18':
+        return svcomp18
+    return svcomp15
 
 
 class CategoryLookupTask(Task):
@@ -12,6 +20,8 @@ class CategoryLookupTask(Task):
     graphPaths = Parameter('./graphs/')
     out_dir = Parameter('./graphs/')
     max_size = Parameter(10000)
+    svcomp = Parameter('svcomp15')
+    benchmark_prefix = Parameter('../../..')
 
     def __init__(self, category):
         self.category = category
@@ -26,10 +36,12 @@ class CategoryLookupTask(Task):
         return 'CategoryLookupTask_%s' % self.category
 
     def run(self):
-        results = svcomp15.read_category(
+        svcomp = select_svcomp(self.svcomp.value)
+        results = svcomp.read_category(
                                             self.graphPaths.value,
                                             self.category,
-                                            self.max_size.value
+                                            self.max_size.value,
+                                            self.benchmark_prefix.value
                                         )
 
         assert results

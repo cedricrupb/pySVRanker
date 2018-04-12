@@ -93,9 +93,11 @@ class PrepareKernelTask(Task):
                 (self.graph, self.h, self.D)
 
     def _hash(self, obj):
-        if not self.rainbow.value:
-            return mmh3.hash(obj)
-        return obj
+        hash = mmh3.hash(obj)
+        if self.rainbow.value:
+            if not hasattr(self, 'rainbow_table'):
+                self.rainbow_table = {}
+            self.rainbow_table[hash] = obj
 
     def _collect_labels(self, graph):
         ret = {}
@@ -162,6 +164,9 @@ class PrepareKernelTask(Task):
                 count[label] += 1
 
         graph.graph['label_count'] = count
+
+        if hasattr(self, 'rainbow_table'):
+            graph.graph['rainbow_table'] = self.rainbow_table
 
         with self.output() as out_dirput:
             out_dirput.emit(graph)
