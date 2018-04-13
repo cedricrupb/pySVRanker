@@ -25,14 +25,17 @@ class EdgeType(Enum):
     dummy = 7
 
 
-def _read_node_labeling(labels_path):
+def _read_node_labeling(labels_path, node_relabel={}):
     labels = {}
     with open(labels_path) as f:
         for line in f:
             m = re.match(r"([0-9]+),([A-Z_0-9]+)\n", line)
             if m is not None:
                 node = m.group(1)
-                labels[node] = m.group(2)
+                label = m.group(2)
+                if label in node_relabel:
+                    label = node_relabel[label]
+                labels[node] = label
     return labels
 
 
@@ -70,6 +73,7 @@ class GraphTask(Task):
     heap = Parameter("16384m")
     timeout = Parameter(None)
     localize = Parameter(None)
+    node_relabel = Parameter({})
 
     def __init__(self, name):
         self.name = name
@@ -167,7 +171,8 @@ class GraphTask(Task):
 
         nx_digraph = nx.read_graphml(graph_path)
 
-        node_labels = _read_node_labeling(node_labels_path)
+        node_labels = _read_node_labeling(node_labels_path,
+                                          self.node_relabel.value)
         nx.set_node_attributes(nx_digraph, name='label', values=node_labels)
 
         tick(self)
