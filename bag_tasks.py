@@ -1,5 +1,3 @@
-import matplotlib
-matplotlib.use('Agg')
 from .bag import ProgramBags, read_bag, normalize_gram, enumerateable, indexMap
 from pyTasks.task import Task, Parameter
 from pyTasks.task import Optional, containerHash
@@ -72,7 +70,6 @@ def pareto_front(knownSet, entity, key):
 
 
 class BagLoadingTask(Task):
-    out_dir = Parameter('./gram/')
     pattern = Parameter('./task_%d_%d.json')
 
     def __init__(self, h, D):
@@ -710,8 +707,7 @@ class BagMDSTask(Task):
 
         def require(self):
             h = [h for h in range(self.h+1)]
-            return [BagLoadingTask(self.h, self.D),
-                    BagNormalizeGramTask(h, self.D, self.category,
+            return [BagNormalizeGramTask(h, self.D, self.category,
                                          self.kernel)]
 
         def __taskid__(self):
@@ -724,36 +720,10 @@ class BagMDSTask(Task):
                                                )
 
         def output(self):
-            return FileTarget(self.out_dir.value+self.__taskid__()+'.png')
-
-        def _build_maps(self):
-            with self.input()[0] as i:
-                D = i.query()
-            map_to_labels = {k: v['label'] for k, v in D.items()}
-            map_to_times = {k: v['time'] if 'time' in v else math.inf for k, v in D.items()}
-            del D
-            return map_to_labels, map_to_times
-
-        @staticmethod
-        def _index_map(index, mapping):
-            V = [
-                m[1] for m in sorted(list(mapping.items()), key=lambda x: index[x[0]])
-            ]
-            return np.array(V)
-
-        @staticmethod
-        def _state_time_split(y):
-            y_solve = np.array(['UNKNOWN']*len(y))
-            y_time = np.array(['UNKNOWN']*len(y))
-
-            for i, d in enumerate(y):
-                solve = [k for k in d if d[k]['solve'] == 'correct']
-                if len(solve) == 1:
-                    y_solve[i] = solve[0]
-                time_rank = sorted(list(d.keys()), key=lambda x: d[x]['time'])
-                y_time[i] = time_rank[0]
-
-            return y_solve, y_time
+            path = self.out_dir.value + self.__taskid__() + '.json'
+            return CachedTarget(
+                LocalTarget(path, service=JsonService)
+            )
 
         def run(self):
             with self.input()[1] as i:
@@ -762,55 +732,206 @@ class BagMDSTask(Task):
                 X = np.array(D['data'])
                 del D
 
-            y, times = self._build_maps()
-            y = BagMDSTask._index_map(graphIndex, y)
-            y_solve, y_time = BagMDSTask._state_time_split(y)
-
             dis = np.ones(X.shape, dtype=X.dtype) - X
-            colors = ['grey', 'green', 'red']
-            tName = ['UNKNOWN', 'IUV', 'ESBMC']
-            aName = ['UNKNOWN', 'Tester', 'Verificator']
-
-            l_solve = np.zeros(len(y_solve))
-            l_time = np.zeros(len(y_time))
-
-            for i in range(len(l_solve)):
-                for j, t in enumerate(tName):
-                    if y_solve[i] == t:
-                        l_solve[i] = j
-                    if y_time[i] == t:
-                        l_time[i] = j
 
             mds = MDS(n_components=2, dissimilarity="precomputed", n_init=10)
             X_r = mds.fit_transform(dis)
             stress = mds.stress_
 
+            with self.output() as o:
+                o.emit({
+                    'graphIndex': graphIndex,
+                    'data': X_r.tolist(),
+                    'stress': stress
+                })
+
+
+class BagMDSVisualizeLabelTask(Task):
+    out_dir = Parameter('./gram/')
+
+    def __init__(self, h, D, category=None, kernel='linear'):
+        self.h = h
+        self.D = D
+        self.category = category
+        self.kernel = kernel
+
+    def require(self):
+        return [BagLoadingTask(self.h, self.D),
+                BagMDSTask(self.h, self.D, self.category, self.kernel)]
+
+    def __taskid__(self):
+        cat = 'all'
+        if self.category is not None:
+            cat = '_'.join(enumerateable(self.category))
+
+        return 'BagMDSVisualizeLabelTask_%d_%d_%s_%s' % (self.h, self.D, self.kernel,
+                                                           cat
+                                                           )
+
+    def output(self):
+        return FileTarget(self.out_dir.value + self.__taskid__() + '.png')
+
+    def _build_maps(self):
+        with self.input()[0] as i:
+            D = i.query()
+        map_to_labels = {k: v['label'] for k, v in D.items()}
+        map_to_times = {k: v['time'] if 'time' in v else math.inf for k, v in D.items()}
+        del D
+        return map_to_labels, map_to_times
+
+    @staticmethod
+    def _index_map(index, mapping):
+        V = [
+            m[1] for m in sorted(list(mapping.items()), key=lambda x: index[x[0]])
+        ]
+        return np.array(V)
+
+    @staticmethod
+    def _state_time_split(y):
+        y_solve = np.array(['UNKNOWN']*len(y))
+        y_time = np.array(['UNKNOWN']*len(y))
+
+        for i, d in enumerate(y):
+            solve = [k for k in d if d[k]['solve'] == 'correct']
+            if len(solve) == 1:
+                y_solve[i] = solve[0]
+            time_rank = sorted(list(d.keys()), key=lambda x: d[x]['time'])
+            y_time[i] = time_rank[0]
+
+        return y_solve, y_time
+
+    def run(self):
+        with self.input()[1] as i:
+            D = i.query()
+            graphIndex = D['graphIndex']
+            X = np.array(D['data'])
+            stress = D['stress']
+            del D
+
+        y, times = self._build_maps()
+        y = BagMDSVisualizeLabelTask._index_map(graphIndex, y)
+        y_solve, y_time = BagMDSVisualizeLabelTask._state_time_split(y)
+
+        colors = ['grey', 'green', 'red']
+        tName = ['UNKNOWN', 'IUV', 'ESBMC']
+        aName = ['UNKNOWN', 'Tester', 'Verificator']
+
+        l_solve = np.zeros(len(y_solve))
+        l_time = np.zeros(len(y_time))
+
+        for i in range(len(l_solve)):
+            for j, t in enumerate(tName):
+                if y_solve[i] == t:
+                    l_solve[i] = j
+                if y_time[i] == t:
+                    l_time[i] = j
+
+        plt.figure(1)
+        plt.suptitle('MDS of GRAM dataset (h: %s, D: %s) [%s points] (Stress: %2.2f)' %
+                     (str(self.h), str(self.D), str(len(X)), stress))
+
+        plt.subplot(121)
+        for color, i, t in zip(colors, range(len(aName)), aName):
+            plt.scatter(X[l_solve == i, 0], X[l_solve == i, 1],
+                        color='none', alpha=.8,
+                        lw=2,
+                        label=t,
+                        edgecolors=color)
+        plt.legend(loc='best', shadow=False, scatterpoints=1)
+
+        plt.subplot(122)
+        for color, i, t in zip(colors, range(len(aName)), aName):
+            plt.scatter(X[l_time == i, 0], X[l_time == i, 1],
+                        color='none', alpha=.8,
+                        lw=2,
+                        label=t,
+                        edgecolors=color)
+        plt.legend(loc='best', shadow=False, scatterpoints=1)
+
+        path = self.output().path
+
+        directory = os.path.dirname(path)
+
+        if not os.path.exists(directory):
+            os.makedirs(directory)
+
+        plt.savefig(path)
+        plt.close()
+
+
+class BagMDSCategoryTask(Task):
+    out_dir = Parameter('./gram/')
+
+    def __init__(self, h, D, category=None, kernel='linear'):
+        self.h = h
+        self.D = D
+        self.category = category
+        self.kernel = kernel
+
+    def require(self):
+        return [BagLoadingTask(self.h, self.D),
+                BagMDSTask(self.h, self.D, self.category, self.kernel)]
+
+    def __taskid__(self):
+        cat = 'all'
+        if self.category is not None:
+            cat = '_'.join(enumerateable(self.category))
+
+        return 'BagMDSCategoryTask_%d_%d_%s_%s' % (self.h, self.D, self.kernel,
+                                                           cat
+                                                           )
+
+    def output(self):
+        return FileTarget(self.out_dir.value + self.__taskid__() + '.png')
+
+
+    def run(self):
+        with self.input()[0] as i:
+            bag = ProgramBags(content=i.query())
+
+        with self.input()[1] as i:
+            D = i.query()
+            graphIndex = D['graphIndex']
+            X = np.array(D['data'])
+            stress = D['stress']
+            del D
+
+        path = self.output().path
+
+        directory = os.path.dirname(path)
+
+        if not os.path.exists(directory):
+            os.makedirs(directory)
+
+        spath = os.path.splitext(path)
+        spath = spath[0] + '_%s' + spath[1]
+
+        colors = ['grey', 'red']
+        aName = ['OTHER', 'cat']
+
+        for k, V in bag.categories.items():
+
+            l_vec = np.zeros(len(X))
+            nnz = 0
+
+            aName[1] = k
+
+            for p in V:
+                pos = graphIndex[p]
+                l_vec[pos] = 1
+                nnz += 1
+
             plt.figure(1)
-            plt.suptitle('MDS of GRAM dataset (h: %s, D: %s) [%s points] (Stress: %2.2f)' %
-                         (str(self.h), str(self.D), str(len(X_r)), stress))
+            plt.suptitle('MDS of Category %s (h: %s, D: %s) [%s points] (Stress: %2.2f)' %
+                         (k, str(self.h), str(self.D), str(nnz), stress))
 
-            plt.subplot(121)
             for color, i, t in zip(colors, range(len(aName)), aName):
-                plt.scatter(X_r[l_solve == i, 0], X_r[l_solve == i, 1],
-                            color=color, alpha=.8,
+                plt.scatter(X[l_vec == i, 0], X[l_vec == i, 1],
+                            color='none', alpha=.8,
                             lw=2,
-                            label=t)
+                            label=t,
+                            edgecolors=color)
             plt.legend(loc='best', shadow=False, scatterpoints=1)
 
-            plt.subplot(122)
-            for color, i, t in zip(colors, range(len(aName)), aName):
-                plt.scatter(X_r[l_time == i, 0], X_r[l_time == i, 1],
-                            color=color, alpha=.8,
-                            lw=2,
-                            label=t)
-            plt.legend(loc='best', shadow=False, scatterpoints=1)
-
-            path = self.output().path
-
-            directory = os.path.dirname(path)
-
-            if not os.path.exists(directory):
-                os.makedirs(directory)
-
-            plt.savefig(path)
+            plt.savefig(spath % k)
             plt.close()

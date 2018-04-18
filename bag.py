@@ -7,7 +7,7 @@ from .kernel_function import is_pairwise, is_absolute
 
 
 def detect_category(path):
-    reg = re.compile('sv-benchmarks/c/(\D+)/')
+    reg = re.compile('sv-benchmarks\/c\/[^\/]+\/')
     o = reg.search(path)
     if o is None:
         return 'unknown'

@@ -98,6 +98,7 @@ class PrepareKernelTask(Task):
             if not hasattr(self, 'rainbow_table'):
                 self.rainbow_table = {}
             self.rainbow_table[hash] = obj
+        return hash
 
     def _collect_labels(self, graph):
         ret = {}
