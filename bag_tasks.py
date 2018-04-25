@@ -450,13 +450,17 @@ class BagClassifierEvalutionTask(Task):
         test_time = (time.time() - start_time) / len(y_test)
 
         empirical = {}
+        raw_empircal = {}
         for i, pred in enumerate(prediction):
             expected = y_test[i]
             g = graphs[test_index[i]]
             for k, score in scores.items():
                 if k not in empirical:
                     empirical[k] = 0.0
-                empirical[k] += score(pred, expected, g) / len(y_test)
+                    raw_empircal[k] = []
+                s = score(pred, expected, g)
+                empirical[k] += s / len(y_test)
+                raw_empircal[k].append(s)
 
         with self.output() as emitter:
             emitter.emit(
@@ -464,7 +468,8 @@ class BagClassifierEvalutionTask(Task):
                     'parameter': self.get_params(),
                     'train_time': train_time,
                     'test_time': test_time,
-                    'result': empirical
+                    'result': empirical,
+                    'raw_results': raw_empircal
                 }
             )
 
@@ -541,13 +546,21 @@ class BagKFoldTask(Task):
 
         R = mean_std(results)
 
+        empirical = {}
+        for r in results:
+            for k, score in r['raw_results']:
+                if k not in empirical:
+                    empirical[k] = []
+                empirical[k].extend(score)
+
         with self.output() as emitter:
             emitter.emit(
                 {
                     'parameter': self.get_params(),
                     'train_time': R['train_time'],
                     'test_time': R['test_time'],
-                    'result': R['result']
+                    'result': R['result'],
+                    'raw_results': empirical
                 }
             )
 
@@ -726,7 +739,7 @@ class BagMDSTask(Task):
             )
 
         def run(self):
-            with self.input()[1] as i:
+            with self.input()[0] as i:
                 D = i.query()
                 graphIndex = D['graphIndex']
                 X = np.array(D['data'])
