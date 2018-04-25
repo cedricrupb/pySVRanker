@@ -477,6 +477,7 @@ class BagClassifierEvalutionTask(Task):
 class BagKFoldTask(Task):
     k = Parameter(10)
     out_dir = Parameter('./eval/')
+    random_state = Parameter(0)
 
     def __init__(self, clf_type, clf_params,
                  graph_count, h, D, scores,
@@ -501,7 +502,7 @@ class BagKFoldTask(Task):
 
     def require(self):
         index = np.array(self._index())
-        loo = KFold(self.k.value, shuffle=True, random_state=random.randint(0, 100))
+        loo = KFold(self.k.value, shuffle=True, random_state=self.random_state.value)
         return [
             Optional(BagClassifierEvalutionTask(
                 self.clf_type,
@@ -643,6 +644,7 @@ class BagParameterGridTask(Task):
 class BagKParamGridTask(Task):
     k = Parameter(10)
     out_dir = Parameter('./eval/')
+    random_state = Parameter(0)
 
     def __init__(self, clf_type, paramGrid,
                  graph_count, scores, opt_scores,
@@ -666,7 +668,7 @@ class BagKParamGridTask(Task):
 
     def require(self):
         index = np.array(self._index())
-        loo = KFold(self.k.value, shuffle=True, random_state=random.randint(0, 100))
+        loo = KFold(self.k.value, shuffle=True, random_state=self.random_state.value)
         return [
             BagParameterGridTask(
                 self.clf_type,
