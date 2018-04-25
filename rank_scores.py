@@ -5,8 +5,12 @@ def select_score(type_id, map_graph_to_labels, map_graph_to_times):
         return accuracy_score
     elif type_id == 'spearmann':
         return spearmann_score
+    elif type_id == 'spearmann_lambda':
+        return spearmann_lambda_score
     elif type_id == 'svcomp':
         return make_svcomp_score(map_graph_to_labels)
+    elif type_id == 'correct':
+        return make_correct_score(map_graph_to_labels)
     elif type_id == 'time':
         return make_time_score(map_graph_to_labels, map_graph_to_times)
     elif type_id == 'time_count':
@@ -35,6 +39,12 @@ def spearmann_score(prediction_ranking, expected_ranking, graph=None):
     return 1 - (6*rg / (n * (n**2 - 1)))
 
 
+def spearmann_lambda_score(prediction_ranking, expected_ranking, graph=None):
+    if spearmann_score(prediction_ranking, expected_ranking, graph) >= 0.5:
+        return 1
+    return 0
+
+
 def svcomp_scoring(prediction_solve, expected_solve):
     if prediction_solve:
         return 1
@@ -57,6 +67,27 @@ def make_svcomp_score(map_graph_to_labels):
         return svcomp_scoring(prediction_solve, expected_solve)
 
     return svcomp_score
+
+
+def correct_scoring(prediction_solve, expected_solve):
+    if prediction_solve or not expected_solve:
+        return 1
+    return 0
+
+
+def make_correct_score(map_graph_to_labels):
+
+    def correct_score(prediction_ranking, expected_ranking, graph):
+        if graph is None:
+            raise ValueError('Need graph for calculation')
+
+        label = map_graph_to_labels[graph]
+        prediction_solve = label[prediction_ranking[0]]['solve'] == 'correct'
+        expected_solve = label[expected_ranking[0]]['solve'] == 'correct'
+
+        return correct_scoring(prediction_solve, expected_solve)
+
+    return correct_score
 
 
 def make_time_score(map_graph_to_labels, map_graph_to_times):
