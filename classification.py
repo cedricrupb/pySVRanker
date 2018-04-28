@@ -130,6 +130,8 @@ class ProgramRankPredictor(BaseEstimator, ClassifierMixin):
 
     def _check_y(self, y):
         for _y in y:
+            if len(_y) == 0:
+                raise ValueError('Every point has to be labeled')
             for k, v in _y.items():
                 if 'solve' not in v:
                     raise ValueError('Missing entry \'solve\'')
@@ -147,14 +149,22 @@ class ProgramRankPredictor(BaseEstimator, ClassifierMixin):
                 if i < j:
                     self._time[(i, j)] = MajorityOrSVC(self.C_time)
 
+    def _enum_y(self, y):
+        i = 0
+        for t in y:
+            if t not in self._tools:
+                continue
+            yield (i, t)
+            i += 1
+
     def _prep_y(self, y):
         out_y = []
         for _y in y:
             d = {}
             out_y.append(d)
-            for i, t in enumerate(_y):
+            for i, t in self._enum_y(_y):
                 d[t] = _y[t]['solve']
-                for j, o in enumerate(_y):
+                for j, o in self._enum_y(_y):
                     if i < j:
                         t1 = _y[t]['time']
                         t2 = _y[o]['time']
@@ -166,15 +176,22 @@ class ProgramRankPredictor(BaseEstimator, ClassifierMixin):
                             d[(i, j)] = o
         return out_y
 
+    @staticmethod
+    def common_tools(y):
+        tools = {}
+        for _y in y:
+            for t in _y.keys():
+                if t not in tools:
+                    tools[t] = 0
+                tools[t] += 1
+
+        m = max(tools.values())
+        return [k for k, v in tools.items() if v == m]
+
     def fit(self, X, y):
         self._check_y(y)
 
-        self._tools = set([])
-        for _y in y:
-            for k in _y:
-                self._tools.add(k)
-
-        self._tools = list(self._tools)
+        self._tools = ProgramRankPredictor.common_tools(y)
 
         self._init_classifier()
 
@@ -183,6 +200,8 @@ class ProgramRankPredictor(BaseEstimator, ClassifierMixin):
         for t, c in self._classifier.items():
             act_y = np.array([_y[t] for _y in y])
             c.fit(X, act_y)
+
+        self._time_index = {}
 
         for coord, c in self._time.items():
             index = []
@@ -193,7 +212,7 @@ class ProgramRankPredictor(BaseEstimator, ClassifierMixin):
                     act_y.append(_y[coord])
             index = np.array(index, dtype=np.int)
             c.fit(X[index][:, index], act_y)
-            self._time_index = index
+            self._time_index[coord] = index
 
     def _incr(self, d, k, i=1):
         if k not in d:
@@ -215,7 +234,7 @@ class ProgramRankPredictor(BaseEstimator, ClassifierMixin):
             t2 = self._tools[j]
             p1 = prediction[t1]
             p2 = prediction[t2]
-            tp = c.predict(X[:, self._time_index])
+            tp = c.predict(X[:, self._time_index[(i, j)]])
 
             for i, d in enumerate(votes):
                 l1 = p1[i] == 'correct'

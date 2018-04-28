@@ -30,6 +30,8 @@ def is_dict(D):
 def mean_std(L):
     O = {}
     for k in L[0]:
+        if 'raw' in k:
+            continue
         coll = [l[k] for l in L]
         if is_dict(coll[0]):
             coll = mean_std(coll)
@@ -549,7 +551,7 @@ class BagKFoldTask(Task):
 
         empirical = {}
         for r in results:
-            for k, score in r['raw_results']:
+            for k, score in r['raw_results'].items():
                 if k not in empirical:
                     empirical[k] = []
                 empirical[k].extend(score)

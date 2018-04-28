@@ -27,7 +27,13 @@ def accuracy_score(prediction_ranking, expected_ranking, graph=None):
     return 0
 
 
+def norm_rank(A, B):
+    return [x for x in A if x in B], [y for y in B if y in A]
+
+
 def spearmann_score(prediction_ranking, expected_ranking, graph=None):
+    prediction_ranking, expected_ranking = norm_rank(prediction_ranking, expected_ranking)
+    print('%s :: %s' % (str(prediction_ranking), str(expected_ranking)))
     pr = {t: i for i, t in enumerate(prediction_ranking)}
     er = {t: i for i, t in enumerate(expected_ranking)}
     rg = 0.0
