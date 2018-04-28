@@ -33,7 +33,6 @@ def norm_rank(A, B):
 
 def spearmann_score(prediction_ranking, expected_ranking, graph=None):
     prediction_ranking, expected_ranking = norm_rank(prediction_ranking, expected_ranking)
-    print('%s :: %s' % (str(prediction_ranking), str(expected_ranking)))
     pr = {t: i for i, t in enumerate(prediction_ranking)}
     er = {t: i for i, t in enumerate(expected_ranking)}
     rg = 0.0
@@ -106,7 +105,13 @@ def make_time_score(map_graph_to_labels, map_graph_to_times):
         time = map_graph_to_times[graph]
 
         prediction = prediction_ranking[0]
-        prediction_time = time + label[prediction]['time']
+
+        if 'prediction' in map_graph_to_times:
+            prediction_time = map_graph_to_times['prediction']
+        else:
+            prediction_time = 0.0
+
+        prediction_time += time + label[prediction]['time']
         full_time = sum([v['time'] for v in label.values()])
         return prediction_time / full_time
 
@@ -123,7 +128,12 @@ def make_time_count_score(map_graph_to_labels, map_graph_to_times):
         time = map_graph_to_times[graph]
 
         prediction = prediction_ranking[0]
-        prediction_time = time + label[prediction]['time']
+        if 'prediction' in map_graph_to_times:
+            prediction_time = map_graph_to_times['prediction']
+        else:
+            prediction_time = 0.0
+
+        prediction_time += time + label[prediction]['time']
         full_time = sum([v['time'] for v in label.values()])
         return 1 if prediction_time < full_time else 0
 

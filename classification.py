@@ -185,7 +185,7 @@ class ProgramRankPredictor(BaseEstimator, ClassifierMixin):
                     tools[t] = 0
                 tools[t] += 1
 
-        m = max(tools.values())
+        m = len(y)
         return [k for k, v in tools.items() if v == m]
 
     def fit(self, X, y):

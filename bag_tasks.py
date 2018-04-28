@@ -446,10 +446,12 @@ class BagClassifierEvalutionTask(Task):
         start_time = time.time()
         clf.fit(X_train, y_train)
         train_time = time.time() - start_time
+        times['train'] = train_time
 
         start_time = time.time()
         prediction = clf.predict_rank(X_test)
         test_time = (time.time() - start_time) / len(y_test)
+        times['prediction'] = test_time
 
         empirical = {}
         raw_empircal = {}
