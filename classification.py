@@ -49,12 +49,21 @@ def incr(d, k, i=1):
     d[k] += i
 
 
-def rank_y(y):
+def enum_rank(y, tools=None):
+    i = 0
+    for t in y:
+        if tools is not None and t not in tools:
+            continue
+        yield i, t
+        i += 1
+
+
+def rank_y(y, tools=None):
     out_y = []
     for _y in y:
         count = {}
-        for i, t in enumerate(_y):
-            for j, o in enumerate(_y):
+        for i, t in enum_rank(_y, tools):
+            for j, o in enum_rank(_y, tools):
                 if i < j:
                     time_t = _y[t]['time']
                     time_o = _y[o]['time']
@@ -84,6 +93,18 @@ def rank_y(y):
         out_y.append(d)
 
     return out_y
+
+
+def common_tools(y):
+    tools = {}
+    for _y in y:
+        for t in _y.keys():
+            if t not in tools:
+                tools[t] = 0
+            tools[t] += 1
+
+    m = len(y)
+    return [k for k, v in tools.items() if v == m]
 
 
 class MajorityOrSVC(BaseEstimator, ClassifierMixin):
@@ -176,22 +197,10 @@ class ProgramRankPredictor(BaseEstimator, ClassifierMixin):
                             d[(i, j)] = o
         return out_y
 
-    @staticmethod
-    def common_tools(y):
-        tools = {}
-        for _y in y:
-            for t in _y.keys():
-                if t not in tools:
-                    tools[t] = 0
-                tools[t] += 1
-
-        m = len(y)
-        return [k for k, v in tools.items() if v == m]
-
     def fit(self, X, y):
         self._check_y(y)
 
-        self._tools = ProgramRankPredictor.common_tools(y)
+        self._tools = common_tools(y)
 
         self._init_classifier()
 
@@ -296,7 +305,11 @@ class ProgramRankMajority(BaseEstimator, ClassifierMixin):
     def fit(self, X, y):
         self._check_y(y)
 
-        y = rank_y(y)
+        tools = common_tools(y)
+
+        y = rank_y(y, tools)
+        print(tools)
+        print(y)
 
         count = {}
         for _y in y:

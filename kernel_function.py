@@ -5,13 +5,14 @@ from sklearn.metrics.pairwise import rbf_kernel
 from tqdm import trange
 from sklearn.feature_extraction.text import TfidfTransformer
 from scipy.sparse import lil_matrix
+import traceback
 
 _divider_ = [':', '_', '/', '\\', '-->', '->']
 
 
 def is_pairwise(kernel):
     try:
-        X = lil_matrix(np.zeros((2, 1)))
+        X = lil_matrix(np.ones((2, 1)))
         kernel(X, X)
         return True
     except Exception:
@@ -20,10 +21,10 @@ def is_pairwise(kernel):
 
 def is_absolute(kernel):
     try:
-        X = lil_matrix(np.zeros((2, 2)))
+        X = lil_matrix(np.ones((2, 2)))
         kernel(X)
         return True
-    except Exception:
+    except Exception as e:
         return False
 
 
@@ -66,6 +67,8 @@ def select_kernel(kernel_type):
 def select_preprocessor(preprocessor_type):
     if preprocessor_type == 'tfidf':
         return tfidf_preprocessor
+    elif preprocessor_type == 'cov':
+        return cov_preprocessor
     else:
         raise ValueError('Unknown preprocessor %s' % preprocessor_type)
 
@@ -123,3 +126,12 @@ def jaccard_kernel(X):
 
 def tfidf_preprocessor(X):
     return TfidfTransformer().fit_transform(X)
+
+
+def cov_preprocessor(X):
+    X = X.tocsc()
+    cov = X.getnnz(axis=0) / X.get_shape()[1]
+    threshold = 0.1
+    condition = np.where(cov >= threshold)
+    X = X[:, condition[0]]
+    return X.tocsr()
