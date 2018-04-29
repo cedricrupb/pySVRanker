@@ -308,8 +308,6 @@ class ProgramRankMajority(BaseEstimator, ClassifierMixin):
         tools = common_tools(y)
 
         y = rank_y(y, tools)
-        print(tools)
-        print(y)
 
         count = {}
         for _y in y:

@@ -7,6 +7,10 @@ def select_score(type_id, map_graph_to_labels, map_graph_to_times):
         return spearmann_score
     elif type_id == 'spearmann_lambda':
         return spearmann_lambda_score
+    elif type_id == 'kendall_tau':
+        return kendall_tau_score
+    elif type_id == 'inv_kendall_tau':
+        return inv_kendall_tau_score
     elif type_id == 'svcomp':
         return make_svcomp_score(map_graph_to_labels)
     elif type_id == 'correct':
@@ -48,6 +52,34 @@ def spearmann_lambda_score(prediction_ranking, expected_ranking, graph=None):
     if spearmann_score(prediction_ranking, expected_ranking, graph) >= 0.5:
         return 1
     return 0
+
+
+def kendall_tau_distance(prediction_ranking, expected_ranking):
+    pr = {t: i for i, t in enumerate(prediction_ranking)}
+
+    dis = 0
+
+    for i in range(len(expected_ranking)-1):
+        for j in range(1, len(expected_ranking)):
+            t1 = expected_ranking[i]
+            t2 = expected_ranking[j]
+            if pr[t1] > pr[t2]:
+                dis += 1
+
+    return dis
+
+
+def kendall_tau_score(prediction_ranking, expected_ranking, graph=None):
+    prediction_ranking, expected_ranking = norm_rank(prediction_ranking, expected_ranking)
+
+    dis = kendall_tau_distance(prediction_ranking, expected_ranking)
+    n = len(prediction_ranking)
+
+    return 4 * dis / (n * (n - 1))
+
+
+def inv_kendall_tau_score(prediction_ranking, expected_ranking, graph=None):
+    return 1 - kendall_tau_score(prediction_ranking, expected_ranking, graph)
 
 
 def svcomp_scoring(prediction_solve, expected_solve):

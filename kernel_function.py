@@ -130,8 +130,10 @@ def tfidf_preprocessor(X):
 
 def cov_preprocessor(X):
     X = X.tocsc()
+    feat = X.get_shape()[1]
     cov = X.getnnz(axis=0) / X.get_shape()[1]
-    threshold = 0.1
+    threshold = 0.001
     condition = np.where(cov >= threshold)
     X = X[:, condition[0]]
+    print('%d / %d' % (X.get_shape()[1], feat))
     return X.tocsr()

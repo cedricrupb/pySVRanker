@@ -280,7 +280,6 @@ class BagSumGramTask(Task):
         GR = None
 
         for inp in self.input():
-            print(inp.path)
             with inp as i:
                 D = i.query()
                 gI = D['graphIndex']
