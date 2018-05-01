@@ -5,11 +5,16 @@ from scipy.sparse import coo_matrix, diags
 from tqdm import tqdm
 from .kernel_function import is_pairwise, is_absolute
 from .prepare_tasks import select_svcomp
+from .svcomp15 import MissingPropertyTypeException
 
 
 def detect_task_type(svcomp, path):
     svcomp = select_svcomp(svcomp)
-    return svcomp._extract_property_type(path)
+    try:
+        return svcomp._extract_property_type(path)
+    except MissingPropertyTypeException:
+        print('Problem with property. Ignore')
+        return None
 
 
 def detect_category(path):
