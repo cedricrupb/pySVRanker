@@ -16,6 +16,8 @@ def select_classifier(type_id):
         return ProgramRankPredictor
     elif type_id == 'quality':
         return QualityProgramRankPredictor
+    elif type_id == 'prob':
+        return ProgramRankProbabilityPredictor
     else:
         raise ValueError('Unknown classifier type %s' % type_id)
 
@@ -201,6 +203,7 @@ class ProgramRankPredictor(BaseEstimator, ClassifierMixin):
         self._check_y(y)
 
         self._tools = common_tools(y)
+        print('Used tools for training: %s' % str(self._tools))
 
         self._init_classifier()
 
@@ -446,6 +449,169 @@ class QualityProgramRankPredictor(BaseEstimator, ClassifierMixin):
                     reverse=True
                 )
             ]
+
+        return y
+
+    def predict(self, X):
+        ranks = self.predict_rank(X)
+        return [r[0] for r in ranks]
+
+    def score(self, X, y):
+        score = np.zeros(len(y))
+
+        y_pred = self.predict(X)
+        for i, _y in enumerate(y):
+            if y_pred[i] == _y:
+                score[i] = 1
+
+        return score.mean()
+
+
+class ProgramRankProbabilityPredictor(BaseEstimator, ClassifierMixin):
+
+    def __init__(self, C_solve=1.0, C_time=1.0):
+        self.C_solve = C_solve
+        self.C_time = C_time
+
+    def _check_y(self, y):
+        for _y in y:
+            if len(_y) == 0:
+                raise ValueError('Every point has to be labeled')
+            for k, v in _y.items():
+                if 'solve' not in v:
+                    raise ValueError('Missing entry \'solve\'')
+                if 'time' not in v:
+                    raise ValueError('Missing entry \'time\'')
+
+    def _init_classifier(self):
+        self._classifier = {}
+        self._time = {}
+
+        for i, t in enumerate(self._tools):
+            self._classifier[t] = SVC(C=self.C_solve, probability=True)
+
+            for j, o in enumerate(self._tools):
+                if i < j:
+                    self._time[(i, j)] = SVC(C=self.C_time, probability=True)
+
+    def _enum_y(self, y):
+        i = 0
+        for t in y:
+            if t not in self._tools:
+                continue
+            yield (i, t)
+            i += 1
+
+    def _prep_y(self, y):
+        out_y = []
+        for _y in y:
+            d = {}
+            out_y.append(d)
+            for i, t in self._enum_y(_y):
+                d[t] = _y[t]['solve']
+                for j, o in self._enum_y(_y):
+                    if i < j:
+                        t1 = _y[t]['time']
+                        t2 = _y[o]['time']
+                        if t1 > 900 and t2 > 900:
+                            continue
+                        if t1 < t2:
+                            d[(i, j)] = t
+                        else:
+                            d[(i, j)] = o
+        return out_y
+
+    def fit(self, X, y):
+        self._check_y(y)
+
+        self._tools = common_tools(y)
+        print('Used tools for training: %s' % str(self._tools))
+
+        self._init_classifier()
+
+        y = self._prep_y(y)
+
+        for t, c in self._classifier.items():
+            act_y = np.array([_y[t] for _y in y])
+            c.fit(X, act_y)
+
+        self._time_index = {}
+
+        for coord, c in self._time.items():
+            index = []
+            act_y = []
+            for i, _y in enumerate(y):
+                if coord in _y:
+                    index.append(i)
+                    act_y.append(_y[coord])
+            index = np.array(index, dtype=np.int)
+            c.fit(X[index][:, index], act_y)
+            self._time_index[coord] = index
+
+    def _incr(self, d, k, i=1):
+        if k not in d:
+            d[k] = 0
+        d[k] += i
+
+    def predict_rank(self, X):
+        prediction = {}
+
+        for k, c in self._classifier.items():
+            prediction[k] =\
+                     [
+                        {k: v for (k, v) in zip(c.classes_, x)}
+                        for x in c.predict_proba(X)
+                      ]
+
+        faster = {}
+
+        for (i, j), c in self._time.items():
+            tmp =\
+                     [
+                        {k: v for (k, v) in zip(c.classes_, x)}
+                        for x in c.predict_proba(X[:, self._time_index[(i, j)]])
+                      ]
+            faster[(i, j)] = list(map(lambda M: M[self._tools[i]], tmp))
+
+        S = None
+
+        for (i, j), fast in faster.items():
+            if S is None:
+                S = [None] * len(fast)
+
+            i = self._tools[i]
+            j = self._tools[j]
+
+            for ix, fast_prob in enumerate(fast):
+                if S[ix] is None:
+                    S[ix] = {}
+
+                p = prediction[i][ix]['correct'] * prediction[j][ix]['false']
+                p_w = prediction[i][ix]['false'] * prediction[j][ix]['correct']
+
+                # For i
+                p_r = p + (1 - (p + p_w)) * fast_prob
+                if i not in S[ix]:
+                    S[ix][i] = p_r
+                else:
+                    S[ix][i] += p_r
+
+                # For j
+                p_r = p_w + (1 - (p + p_w)) * (1 - fast_prob)
+                if j not in S[ix]:
+                    S[ix][j] = p_r
+                else:
+                    S[ix][j] += p_r
+
+        y = []
+
+        for M in S:
+            rank = [
+                x[0] for x in sorted(
+                    list(M.items()), key=lambda x: x[1], reverse=True
+                )
+            ]
+            y.append(rank)
 
         return y
 

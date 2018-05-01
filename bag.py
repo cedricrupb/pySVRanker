@@ -4,6 +4,12 @@ import numpy as np
 from scipy.sparse import coo_matrix, diags
 from tqdm import tqdm
 from .kernel_function import is_pairwise, is_absolute
+from .prepare_tasks import select_svcomp
+
+
+def detect_task_type(svcomp, path):
+    svcomp = select_svcomp(svcomp)
+    return svcomp._extract_property_type(path)
 
 
 def detect_category(path):
@@ -54,11 +60,13 @@ def normalize_gram(GR):
 
 class ProgramBags:
 
-    def __init__(self, content={}, init_bags={}, init_categories={}):
+    def __init__(self, content={}, init_bags={}, init_categories={},
+                 svcomp='svcomp15'):
         self.bags = init_bags
         self.categories = init_categories
         self.graphIndex = {}
         self.nodeIndex = {}
+        self.svcomp = svcomp
         self._parse_content(content)
         self._index_bags()
 
@@ -67,6 +75,7 @@ class ProgramBags:
             category = 'unknown'
             if 'file' in B:
                 category = detect_category(B['file'])
+                B['task_type'] = detect_task_type(self.svcomp, B['file'])
             if category not in self.categories:
                 self.categories[category] = []
             self.categories[category].append(k)
@@ -85,27 +94,45 @@ class ProgramBags:
         for k, v in categories.items():
             flat.extend(v)
         bags = {k: self.bags[k] for k in flat}
-        return ProgramBags(init_bags=bags, init_categories=categories)
+        return ProgramBags(init_bags=bags, init_categories=categories,
+                           svcomp=self.svcomp)
+
+    def get_task_type(self, task_type):
+        categories = {}
+        bags = {}
+        for k, V in self.categories.items():
+            categories[k] = []
+            for v in V:
+                task = self.bags[v]
+                if task['task_type'] == task_type:
+                    categories[k].append(v)
+                    bags[v] = task
+        return ProgramBags(init_bags=bags, init_categories=categories,
+                           svcomp=self.svcomp)
 
     def features(self):
 
         row = []
         column = []
         data = []
+        floatType = False
 
         K = {}
         for ID, entry in self.bags.items():
             gI = indexMap(ID, self.graphIndex)
             for n, c in entry['kernel_bag'].items():
                 nI = indexMap(n, self.nodeIndex)
+                floatType = floatType or isinstance(c, float)
                 row.append(gI)
                 column.append(nI)
                 data.append(c)
 
+        dtype = np.float64 if floatType else np.uint64
+
         phi = coo_matrix((data, (row, column)),
                          shape=(self.graphIndex['counter'],
                                 self.nodeIndex['counter']),
-                         dtype=np.uint64)
+                         dtype=dtype)
 
         return phi.tocsr()
 

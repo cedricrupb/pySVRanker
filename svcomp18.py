@@ -24,6 +24,17 @@ _df_cols = ['options', 'status', 'status_msg', 'cputime', 'walltime', 'mem_usage
             'expected_status', 'property_type']
 
 
+def select_propety(prop_id):
+    if prop_id == 'reach':
+        return PropertyType.unreachability
+    elif prop_id == 'memory':
+        return PropertyType.memory_safety
+    elif prop_id == 'termination':
+        return PropertyType.termination
+    elif prop_id == 'overflow':
+        return PropertyType.overflow
+
+
 def read_category(results_xml_raw_dir_path, category,
                   max_size, witnesscheck=True, prefix='.'):
     """

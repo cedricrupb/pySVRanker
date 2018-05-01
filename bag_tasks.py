@@ -85,7 +85,12 @@ class BagLoadingTask(Task):
         return 'BagLoadingTask_%d_%d' % (self.h, self.D)
 
     def output(self):
-        src_path = self.pattern.value % (self.h, self.D)
+        try:
+            src_path = self.pattern.value % (self.h, self.D)
+        except TypeError:
+            print('Source is not formattable: %s. Continue without parameter.'
+                  % self.pattern.value)
+            src_path = self.pattern.value
         return CachedTarget(
             LocalTarget(src_path, service=JsonService)
         )
@@ -142,7 +147,7 @@ class BagFeatureTask(Task):
     def __taskid__(self):
         cat = 'all'
         if self.category is not None:
-            cat = '_'.join(enumerateable(self.category))
+            cat = str(containerHash(self.category))
 
         return 'BagFeatureTask_%d_%d_%s' % (self.h, self.D, cat)
 
@@ -186,6 +191,7 @@ class BagFeatureTask(Task):
 
 class BagGramTask(Task):
     out_dir = Parameter('./gram/')
+    svcomp = Parameter('svcomp15')
 
     def __init__(self, h, D, category=None, kernel='linear'):
         self.h = h
@@ -201,7 +207,7 @@ class BagGramTask(Task):
     def __taskid__(self):
         cat = 'all'
         if self.category is not None:
-            cat = '_'.join(enumerateable(self.category))
+            cat = str(containerHash(self.category))
 
         return 'BagGramTask_%d_%d_%s_%s' % (self.h, self.D, self.kernel, cat)
 
@@ -216,7 +222,7 @@ class BagGramTask(Task):
             graphIndex = i.query()
 
         with self.input()[1] as i:
-            bag = ProgramBags(content=i.query())
+            bag = ProgramBags(content=i.query(), svcomp=self.svcomp.value)
 
         bag.graphIndex = graphIndex
 
@@ -262,7 +268,7 @@ class BagSumGramTask(Task):
     def __taskid__(self):
         cat = 'all'
         if self.category is not None:
-            cat = '_'.join(enumerateable(self.category))
+            cat = str(containerHash(self.category))
 
         return 'BagSumGramTask_%s_%d_%s_%s' % (str(
                                                       containerHash(self.hSet)
@@ -323,7 +329,7 @@ class BagNormalizeGramTask(Task):
     def __taskid__(self):
         cat = 'all'
         if self.category is not None:
-            cat = '_'.join(enumerateable(self.category))
+            cat = str(containerHash(self.category))
 
         return 'BagNormGramTask_%s_%d_%s_%s' % (str(
                                                       containerHash(self.h)
@@ -417,6 +423,7 @@ class BagClassifierEvalutionTask(Task):
 
     @staticmethod
     def _index_map(index, mapping):
+        mapping = {k: v for k, v in mapping.items() if k in index}
         V = [
             m for m in sorted(list(mapping.items()), key=lambda x: index[x[0]])
         ]
