@@ -125,6 +125,8 @@ class MajorityOrSVC(BaseEstimator, ClassifierMixin):
 
         if isinstance(self._classifier, SVC):
             self._classifier.fit(X, y)
+            print('Support Vector: %s (%s)' % (str(self._classifier.support_),
+                                               str(self._classifier.support_.shape)))
         else:
             print('!!!! Majority %s !!!' % str(self._classifier))
 

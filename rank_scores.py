@@ -165,6 +165,12 @@ def make_time_count_score(map_graph_to_labels, map_graph_to_times):
         else:
             prediction_time = 0.0
 
+        print('prediction_time: %s (%s)\n time: %s (%s)\n label_time: %s (%s)'
+              % (str(prediction_time), str(type(prediction_time)),
+                 str(time), str(type(time)),
+                 str(label[prediction]['time']),
+                 str(type(label[prediction]['time']))))
+
         prediction_time += time + label[prediction]['time']
         full_time = sum([v['time'] for v in label.values()])
         return 1 if prediction_time < full_time else 0

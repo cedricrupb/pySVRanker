@@ -112,6 +112,9 @@ class ProgramBags:
                 if task['task_type'] == task_type:
                     categories[k].append(v)
                     bags[v] = task
+        if len(bags) == 0:
+            raise ValueError('No representation found for %s. Fail.'
+                             % str(task_type))
         return ProgramBags(init_bags=bags, init_categories=categories,
                            svcomp=self.svcomp)
 

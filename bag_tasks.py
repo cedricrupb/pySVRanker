@@ -17,6 +17,7 @@ from sklearn.manifold import MDS
 import matplotlib.pyplot as plt
 import os
 from scipy.sparse import issparse
+from .prepare_tasks import select_svcomp
 
 
 def is_dict(D):
@@ -193,10 +194,11 @@ class BagGramTask(Task):
     out_dir = Parameter('./gram/')
     svcomp = Parameter('svcomp15')
 
-    def __init__(self, h, D, category=None, kernel='linear'):
+    def __init__(self, h, D, category=None, task_type=None, kernel='linear'):
         self.h = h
         self.D = D
         self.category = category
+        self.task_type = task_type
         self.kernel = kernel
 
     def require(self):
@@ -209,7 +211,12 @@ class BagGramTask(Task):
         if self.category is not None:
             cat = str(containerHash(self.category))
 
-        return 'BagGramTask_%d_%d_%s_%s' % (self.h, self.D, self.kernel, cat)
+        tt = ''
+        if self.task_type is not None:
+            tt = '_'+str(self.task_type)
+
+        return 'BagGramTask_%d_%d_%s_%s' % (self.h, self.D, self.kernel, cat)\
+               + tt
 
     def output(self):
         path = self.out_dir.value + self.__taskid__() + '.json'
@@ -228,6 +235,11 @@ class BagGramTask(Task):
 
         if self.category is not None:
             bag = bag.get_category(self.category)
+
+        if self.task_type is not None:
+            svcomp = select_svcomp(self.svcomp.value)
+            prop = svcomp.select_propety(self.task_type)
+            bag = bag.get_task_type(prop)
 
         if self.kernel == 'linear':
             gram = bag.gram().toarray()
@@ -253,15 +265,17 @@ class BagGramTask(Task):
 class BagSumGramTask(Task):
     out_dir = Parameter('./gram/')
 
-    def __init__(self, hSet, D, category=None, kernel='linear'):
+    def __init__(self, hSet, D, category=None,
+                 task_type=None, kernel='linear'):
         self.hSet = hSet
         self.D = D
         self.category = category
+        self.task_type = task_type
         self.kernel = kernel
 
     def require(self):
         return [
-            BagGramTask(h, self.D, self.category, self.kernel)
+            BagGramTask(h, self.D, self.category, self.task_type, self.kernel)
             for h in self.hSet
         ]
 
@@ -270,11 +284,16 @@ class BagSumGramTask(Task):
         if self.category is not None:
             cat = str(containerHash(self.category))
 
+        tt = ''
+        if self.task_type is not None:
+            tt = '_'+str(self.task_type)
+
         return 'BagSumGramTask_%s_%d_%s_%s' % (str(
                                                       containerHash(self.hSet)
                                                       ),
                                                self.D, self.kernel, cat
-                                               )
+                                               )\
+            + tt
 
     def output(self):
         path = self.out_dir.value + self.__taskid__() + '.json'
@@ -311,7 +330,7 @@ class BagSumGramTask(Task):
 class BagNormalizeGramTask(Task):
     out_dir = Parameter('./gram/')
 
-    def __init__(self, h, D, category=None, kernel='linear'):
+    def __init__(self, h, D, category=None, task_type=None, kernel='linear'):
         self.h = h
         self.D = D
         self.category = category
@@ -321,21 +340,26 @@ class BagNormalizeGramTask(Task):
         hSet = [h for h in enumerateable(self.h)]
         if len(hSet) == 1:
             return BagGramTask(hSet[0], self.D,
-                               self.category, self.kernel)
+                               self.category, self.task_type, self.kernel)
         else:
             return BagSumGramTask(hSet, self.D,
-                                  self.category, self.kernel)
+                                  self.category, self.task_type, self.kernel)
 
     def __taskid__(self):
         cat = 'all'
         if self.category is not None:
             cat = str(containerHash(self.category))
 
+        tt = ''
+        if self.task_type is not None:
+            tt = '_'+str(self.task_type)
+
         return 'BagNormGramTask_%s_%d_%s_%s' % (str(
                                                       containerHash(self.h)
                                                       ),
                                                 self.D, self.kernel, cat
-                                                )
+                                                )\
+            + tt
 
     def output(self):
         path = self.out_dir.value + self.__taskid__() + '.json'
@@ -368,6 +392,7 @@ class BagClassifierEvalutionTask(Task):
                  h, D, scores,
                  train_index, test_index,
                  category=None,
+                 task_type=None,
                  kernel='linear'):
         self.clf_type = clf_type
         self.clf_params = clf_params
@@ -378,11 +403,12 @@ class BagClassifierEvalutionTask(Task):
         self.train_index = train_index
         self.test_index = test_index
         self.category = category
+        self.task_type = task_type
 
     def require(self):
         h = [h for h in range(self.h+1)]
         return [BagLoadingTask(self.h, self.D),
-                BagNormalizeGramTask(h, self.D, self.category,
+                BagNormalizeGramTask(h, self.D, self.category, self.task_type,
                                      self.kernel)]
 
     def __taskid__(self):
@@ -493,6 +519,7 @@ class BagKFoldTask(Task):
                  graph_count, h, D, scores,
                  subset_index=None,
                  category=None,
+                 task_type=None,
                  kernel='linear'):
         self.clf_type = clf_type
         self.clf_params = clf_params
@@ -503,6 +530,7 @@ class BagKFoldTask(Task):
         self.scores = scores
         self.subset_index = subset_index
         self.category = category
+        self.task_type = task_type
 
     def _index(self):
         if self.subset_index is None:
@@ -523,6 +551,7 @@ class BagKFoldTask(Task):
                 train_index.tolist(),
                 test_index.tolist(),
                 self.category,
+                self.task_type,
                 self.kernel
             ))
             for train_index, test_index in loo.split(index)
@@ -583,6 +612,7 @@ class BagParameterGridTask(Task):
                  graph_count, scores, opt_scores,
                  subset_index=None,
                  category=None,
+                 task_type=None,
                  kernel='linear'):
         self.clf_type = clf_type
         self.paramGrid = paramGrid
@@ -592,6 +622,7 @@ class BagParameterGridTask(Task):
         self.opt_scores = opt_scores
         self.subset_index = subset_index
         self.category = category
+        self.task_type = task_type
 
     def require(self):
         out = []
@@ -610,6 +641,7 @@ class BagParameterGridTask(Task):
                     self.scores,
                     self.subset_index,
                     self.category,
+                    self.task_type,
                     self.kernel
                 )
             )
@@ -660,6 +692,7 @@ class BagKParamGridTask(Task):
                  graph_count, scores, opt_scores,
                  subset_index=None,
                  category=None,
+                 task_type=None,
                  kernel='linear'):
         self.clf_type = clf_type
         self.paramGrid = paramGrid
@@ -668,6 +701,7 @@ class BagKParamGridTask(Task):
         self.scores = scores
         self.opt_scores = opt_scores
         self.subset_index = subset_index
+        self.task_type = task_type
         self.category = category
 
     def _index(self):
@@ -688,6 +722,7 @@ class BagKParamGridTask(Task):
                 self.opt_scores,
                 subset_index=train_index.tolist(),
                 category=self.category,
+                task_type=self.task_type,
                 kernel=self.kernel
             )
             for train_index, test_index in loo.split(index)
@@ -724,15 +759,18 @@ class BagKParamGridTask(Task):
 class BagMDSTask(Task):
         out_dir = Parameter('./gram/')
 
-        def __init__(self, h, D, category=None, kernel='linear'):
+        def __init__(self, h, D, category=None,
+                     task_type=None, kernel='linear'):
             self.h = h
             self.D = D
             self.category = category
+            self.task_type = task_type
             self.kernel = kernel
 
         def require(self):
             h = [h for h in range(self.h+1)]
             return [BagNormalizeGramTask(h, self.D, self.category,
+                                         self.task_type,
                                          self.kernel)]
 
         def __taskid__(self):
@@ -740,9 +778,14 @@ class BagMDSTask(Task):
             if self.category is not None:
                 cat = '_'.join(enumerateable(self.category))
 
+            tt = ''
+            if self.task_type is not None:
+                tt = '_'+str(self.task_type)
+
             return 'BagMDSTask_%d_%d_%s_%s' % (self.h, self.D, self.kernel,
                                                cat
-                                               )
+                                               )\
+                + tt
 
         def output(self):
             path = self.out_dir.value + self.__taskid__() + '.json'
@@ -774,24 +817,32 @@ class BagMDSTask(Task):
 class BagMDSVisualizeLabelTask(Task):
     out_dir = Parameter('./gram/')
 
-    def __init__(self, h, D, category=None, kernel='linear'):
+    def __init__(self, h, D, category=None, task_type=None, kernel='linear'):
         self.h = h
         self.D = D
         self.category = category
+        self.task_type = task_type
         self.kernel = kernel
 
     def require(self):
         return [BagLoadingTask(self.h, self.D),
-                BagMDSTask(self.h, self.D, self.category, self.kernel)]
+                BagMDSTask(self.h, self.D, self.category,
+                           self.task_type,
+                           self.kernel)]
 
     def __taskid__(self):
         cat = 'all'
         if self.category is not None:
             cat = '_'.join(enumerateable(self.category))
 
+        tt = ''
+        if self.task_type is not None:
+            tt = '_'+str(self.task_type)
+
         return 'BagMDSVisualizeLabelTask_%d_%d_%s_%s' % (self.h, self.D, self.kernel,
                                                            cat
-                                                           )
+                                                           )\
+            + tt
 
     def output(self):
         return FileTarget(self.out_dir.value + self.__taskid__() + '.png')
