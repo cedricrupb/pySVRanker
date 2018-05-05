@@ -417,6 +417,7 @@ class HyperSingleEvaluationTask(Task):
 
 class CVHyperSingleEvalutionTask(Task):
         out_dir = Parameter('./eval/')
+        k = Parameter(10)
 
         def __init__(self, tool_count, Cs, h, D, sub_score,
                      scores, opt_score, full_index,

@@ -652,6 +652,7 @@ class EvaluateLRTask(Task):
 
 class CVEvaluateLRTask(Task):
         out_dir = Parameter('./eval/')
+        k = Parameter(10)
 
         def __init__(self, tool_count, Cs, h, D, scores,
                      opt_score, full_index,
