@@ -118,7 +118,7 @@ class ProgramBags:
         return ProgramBags(init_bags=bags, init_categories=categories,
                            svcomp=self.svcomp)
 
-    def features(self):
+    def features(self, graphIndex=None):
 
         row = []
         column = []

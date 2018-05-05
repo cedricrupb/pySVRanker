@@ -18,6 +18,46 @@ import matplotlib.pyplot as plt
 import os
 from scipy.sparse import issparse
 from .prepare_tasks import select_svcomp
+import re
+from .svcomp15 import MissingPropertyTypeException
+
+
+def is_correct(label):
+    return label['solve'] == 'correct'
+
+
+def is_faster(labelA, labelB):
+    return labelA['time'] < labelB['time']
+
+
+def index(x, y, n):
+    if x >= n:
+        raise ValueError('x: %d is out of range 0 to %d' % (x, n))
+    if y >= n:
+        raise ValueError('y: %d is out of range 0 to %d' % (y, n))
+    if y == x:
+        return x
+    if x > y:
+        tmp = y
+        y = x
+        x = tmp
+
+    return int(x * (n - 0.5*(x+1))
+               + (y - (x+1))
+               + n)
+
+
+def reverse_index(i, n):
+    if i < n:
+        return i, i
+
+    i = i - n + 1
+    x = 0
+    while int(x * (n - 0.5*(x+1))) < i:
+        x += 1
+    x -= 1
+    y = i - int(x * (n - 0.5*(x+1))) + x
+    return x, y
 
 
 def is_dict(D):
@@ -72,6 +112,25 @@ def pareto_front(knownSet, entity, key):
     return front
 
 
+def ranking(row, n):
+    N = np.zeros(n)
+
+    for i in range(n):
+        correct_i = row[index(i, i, n)] == 1
+        for j in range(n):
+            if i < j:
+                correct_j = row[index(j, j, n)] == 1
+                faster_i = row[index(i, j, n)] == 1
+                if correct_i and not correct_j:
+                    N[i] += 1
+                elif correct_j and not correct_i:
+                    N[j] += 1
+                else:
+                    N[i if faster_i else j] += 1
+
+    return N.argsort()[::-1]
+
+
 class BagLoadingTask(Task):
     pattern = Parameter('./task_%d_%d.json')
 
@@ -100,18 +159,102 @@ class BagLoadingTask(Task):
         pass
 
 
-class BagGraphIndexTask(Task):
+class BagFilterTask(Task):
     out_dir = Parameter('./gram/')
+    svcomp = Parameter('svcomp18')
 
-    def __init__(self, h, D):
+    def __init__(self, h, D, category=None, task_type=None):
         self.h = h
         self.D = D
+        self.category = category
+        self.task_type = task_type
+
+    def _init_filter(self):
+        categories = set(enumerateable(self.category))
+        self._svcomp = select_svcomp(self.svcomp.value)
+        prop = self._svcomp.select_propety(self.task_type)
+
+        def filter(category, property):
+            if prop is not None and prop is not property:
+                return False
+
+            if self.category is None:
+                return True
+
+            return category in categories
+        self._filter = filter
+
+    def detect_property(self, path):
+        try:
+            return self._svcomp._extract_property_type(path)
+        except MissingPropertyTypeException:
+            print('Problem with property. Ignore')
+            return None
+
+    def detect_category(self, path):
+        reg = re.compile('sv-benchmarks\/c\/[^\/]+\/')
+        o = reg.search(path)
+        if o is None:
+            return 'unknown'
+        return o.group()[16:-1]
 
     def require(self):
         return BagLoadingTask(self.h, self.D)
 
     def __taskid__(self):
-        return 'BagGraphIndexTask_%d' % (self.D)
+        s = 'BagFilterTask_%d_%d' % (self.h, self.D)
+        if self.category is not None:
+            s += '_'+str(containerHash(self.category))
+        if self.task_type is not None:
+            s += '_'+str(self.task_type)
+        return s
+
+    def output(self):
+        path = self.out_dir.value + self.__taskid__() + '.json'
+        return CachedTarget(
+            LocalTarget(path, service=JsonService)
+        )
+
+    def run(self):
+        self._init_filter()
+        with self.input()[0] as i:
+            B = i.query()
+
+        D = set([])
+        for name, V in B.items():
+            f = V['file']
+            if not self._filter(
+                self.detect_category(f),
+                self.detect_property(f)
+            ):
+                D.add(name)
+
+        B = {b: V for b, V in B.items() if b not in D}
+
+        with self.output() as o:
+            o.emit(B)
+
+
+class BagGraphIndexTask(Task):
+    out_dir = Parameter('./gram/')
+
+    def __init__(self, h, D, category=None, task_type=None):
+        self.h = h
+        self.D = D
+        self.category = category
+        self.task_type = task_type
+
+    def require(self):
+        return BagFilterTask(self.h, self.D,
+                             self.category, self.task_type)
+
+    def __taskid__(self):
+        s = 'BagGraphIndexTask_%d' % (self.D)
+        if self.category is not None:
+            s += '_'+str(containerHash(self.category))
+        if self.task_type is not None:
+            s += '_'+str(self.task_type)
+        return s
 
     def output(self):
         path = self.out_dir.value + self.__taskid__() + '.json'
@@ -132,6 +275,94 @@ class BagGraphIndexTask(Task):
             o.emit(out)
 
 
+class BagLabelMatrixTask(Task):
+    out_dir = Parameter('./gram/')
+
+    def __init__(self, h, D, category=None, task_type=None):
+        self.h = h
+        self.D = D
+        self.category = category
+        self.task_type = task_type
+
+    def require(self):
+        return [BagGraphIndexTask(self.h,
+                                  self.D,
+                                  self.category, self.task_type),
+                BagFilterTask(self.h, self.D,
+                              self.category, self.task_type)]
+
+    def __taskid__(self):
+        s = 'BagLabelMatrixTask_%d_%d' % (self.h, self.D)
+        if self.category is not None:
+            s += '_'+str(containerHash(self.category))
+        if self.task_type is not None:
+            s += '_'+str(self.task_type)
+        return s
+
+    def output(self):
+        path = self.out_dir.value + self.__taskid__() + '.json'
+        return CachedTarget(
+            LocalTarget(path, service=JsonService)
+        )
+
+    @staticmethod
+    def common_tools(bag):
+        F = len(bag)
+        C = {}
+        for B in bag.values():
+            for tool in B['label'].keys():
+                if tool not in C:
+                    C[tool] = 0
+                C[tool] += 1
+        tools = [k for k, v in C.items() if v == F]
+
+        for B in bag.values():
+            for d in [d for d in B['label'].keys() if d not in tools]:
+                del B['label'][d]
+
+        return tools
+
+    def run(self):
+        with self.input()[0] as i:
+            graphIndex = i.query()
+
+        with self.input()[1] as i:
+            bag = i.query()
+
+        self.tools = BagLabelMatrixTask.common_tools(bag)
+        n = len(self.tools)
+        label_matrix = np.zeros((graphIndex['counter'], int(0.5*n*(n+1))))
+        rankings = np.array([None]*graphIndex['counter'])
+        tool_index = {t: i for i, t in enumerate(self.tools)}
+
+        for k, B in bag.items():
+            if k not in graphIndex:
+                continue
+            index_g = graphIndex[k]
+            for tool_x, label_x in B['label'].items():
+                index_x = tool_index[tool_x]
+                label_matrix[index_g, index(index_x, index_x, n)] =\
+                    1 if is_correct(label_x) else 0
+
+                for tool_y, label_y in B['label'].items():
+                    index_y = tool_index[tool_y]
+                    if index_y > index_x:
+                        label_matrix[index_g, index(index_x, index_y, n)] =\
+                            1 if is_faster(label_x, label_y) else 0
+            rank = ranking(label_matrix[index_g, :], n)
+            rankings[index_g] = [self.tools[i] for i in rank]
+
+
+        with self.output() as o:
+            o.emit(
+                {
+                    'tools': self.tools,
+                    'label_matrix': label_matrix.tolist(),
+                    'rankings': rankings.tolist()
+                }
+            )
+
+
 class BagFeatureTask(Task):
     out_dir = Parameter('./gram/')
 
@@ -142,7 +373,8 @@ class BagFeatureTask(Task):
 
     def require(self):
         return [BagGraphIndexTask(self.h,
-                                  self.D),
+                                  self.D,
+                                  self.category, self.task_type),
                 BagLoadingTask(self.h, self.D)]
 
     def __taskid__(self):
@@ -203,8 +435,10 @@ class BagGramTask(Task):
 
     def require(self):
         return [BagGraphIndexTask(self.h,
-                                  self.D),
-                BagLoadingTask(self.h, self.D)]
+                                  self.D,
+                                  self.category, self.task_type),
+                BagFilterTask(self.h, self.D,
+                              self.category, self.task_type)]
 
     def __taskid__(self):
         cat = 'all'
@@ -232,14 +466,7 @@ class BagGramTask(Task):
             bag = ProgramBags(content=i.query(), svcomp=self.svcomp.value)
 
         bag.graphIndex = graphIndex
-
-        if self.category is not None:
-            bag = bag.get_category(self.category)
-
-        if self.task_type is not None:
-            svcomp = select_svcomp(self.svcomp.value)
-            prop = svcomp.select_propety(self.task_type)
-            bag = bag.get_task_type(prop)
+        print(bag.graphIndex['counter'])
 
         if self.kernel == 'linear':
             gram = bag.gram().toarray()
@@ -251,6 +478,7 @@ class BagGramTask(Task):
             if issparse(gram):
                 gram = gram.toarray()
 
+        print(gram.shape)
         data = gram.tolist()
 
         out = {
@@ -334,6 +562,7 @@ class BagNormalizeGramTask(Task):
         self.h = h
         self.D = D
         self.category = category
+        self.task_type = task_type
         self.kernel = kernel
 
     def require(self):
@@ -407,7 +636,8 @@ class BagClassifierEvalutionTask(Task):
 
     def require(self):
         h = [h for h in range(self.h+1)]
-        return [BagLoadingTask(self.h, self.D),
+        return [BagFilterTask(self.h, self.D,
+                              self.category, self.task_type),
                 BagNormalizeGramTask(h, self.D, self.category, self.task_type,
                                      self.kernel)]
 
@@ -959,7 +1189,6 @@ class BagMDSCategoryTask(Task):
 
     def output(self):
         return FileTarget(self.out_dir.value + self.__taskid__() + '.png')
-
 
     def run(self):
         with self.input()[0] as i:

@@ -156,17 +156,17 @@ def _extract_property_type(vtask_path):
     :return: the property type
     """
 
-    # TODO: Elimate this
-    if 'ReachSafety' or 'unreach' in vtask_path:
-        return PropertyType.unreachability
-    if 'MemSafety' or 'valid' in vtask_path:
-        return PropertyType.memory_safety
-    if 'Overflow' or 'overflow' in vtask_path:
-        return PropertyType.overflow
-    if 'Termination' or 'termination' in vtask_path:
-        return PropertyType.termination
+    base_path = vtask_path
 
-    print(vtask_path)
+    # TODO: Elimate this
+    if 'unreach' in base_path:
+        return PropertyType.unreachability
+    if 'valid' in base_path:
+        return PropertyType.memory_safety
+    if 'overflow' in base_path:
+        return PropertyType.overflow
+    if 'termination' in base_path:
+        return PropertyType.termination
 
 
     unreachability_pattern = re.compile(r'CHECK\([_\s\w\(\)]+,\s*LTL\(\s*G\s*!\s*call\([_\w\s\(\)]+\)\s*\)\s*\)')
