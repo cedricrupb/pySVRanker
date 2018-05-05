@@ -683,8 +683,8 @@ class CVEvaluateLRTask(Task):
                     self.h,
                     self.D,
                     self.scores,
-                    train_index,
-                    test_index,
+                    train_index.tolist(),
+                    test_index.tolist(),
                     self.category,
                     self.task_type
                 )

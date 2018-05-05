@@ -451,8 +451,8 @@ class CVHyperSingleEvalutionTask(Task):
                     self.D,
                     self.sub_score,
                     self.scores,
-                    train_index,
-                    test_index,
+                    train_index.tolist(),
+                    test_index.tolist(),
                     self.category,
                     self.task_type,
                     self.kernel
