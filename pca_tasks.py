@@ -351,7 +351,8 @@ class BagCalculateGramTask(Task):
             return PCAKernelTask(
                 self.h, self.D, self.kernel[4:], self.category, self.task_type
             )
-        return BagNormalizeGramTask(self.h, self.D, self.category,
+        hSet = [h for h in range(self.h+1)]
+        return BagNormalizeGramTask(hSet, self.D, self.category,
                                     self.task_type, self.kernel)
 
     def __taskid__(self):
