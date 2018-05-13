@@ -16,10 +16,13 @@ from sklearn.grid_search import ParameterGrid
 from sklearn.manifold import MDS
 import matplotlib.pyplot as plt
 import os
-from scipy.sparse import issparse
+from scipy.sparse import issparse, coo_matrix
 from .prepare_tasks import select_svcomp
 import re
 from .svcomp15 import MissingPropertyTypeException
+from sklearn.decomposition import KernelPCA
+import json
+from scipy.sparse import issparse
 
 
 def is_correct(label):
@@ -129,6 +132,44 @@ def ranking(row, n):
                     N[i if faster_i else j] += 1
 
     return N.argsort()[::-1]
+
+
+class FeatureJsonService:
+
+    def __init__(self, s):
+        self.__src = s
+
+    def emit(self, obj):
+        for k, V in obj.items():
+            if issparse(V):
+                NZ = V.nonzero()
+                data = V[NZ].A
+                shape = V.get_shape()
+
+                obj[k] = {
+                    'sparse': True,
+                    'rows': NZ[0].tolist(),
+                    'columns': NZ[1].tolist(),
+                    'data': data.tolist()[0],
+                    'row_shape': shape[0],
+                    'column_shape': shape[1]
+                }
+
+        json.dump(obj, self.__src, indent=4)
+
+    def query(self):
+        obj = json.load(self.__src)
+
+        for k, V in obj.items():
+            if 'sparse' in V:
+                obj[k] = coo_matrix((V['data'], (V['rows'], V['columns'])),
+                                    shape=(V['row_shape'],
+                                    V['column_shape'])).tocsr()
+
+        return obj
+
+    def isByte(self):
+        return False
 
 
 class BagLoadingTask(Task):
@@ -277,6 +318,7 @@ class BagGraphIndexTask(Task):
 
 class BagLabelMatrixTask(Task):
     out_dir = Parameter('./gram/')
+    allowed = Parameter(None)
 
     def __init__(self, h, D, category=None, task_type=None):
         self.h = h
@@ -330,6 +372,10 @@ class BagLabelMatrixTask(Task):
             bag = i.query()
 
         self.tools = BagLabelMatrixTask.common_tools(bag)
+
+        if self.allowed.value is not None:
+            self.tools = [t for t in self.tools if t in self.allowed.values]
+
         n = len(self.tools)
         label_matrix = np.zeros((graphIndex['counter'], int(0.5*n*(n+1))))
         rankings = np.array([None]*graphIndex['counter'])
@@ -352,7 +398,6 @@ class BagLabelMatrixTask(Task):
             rank = ranking(label_matrix[index_g, :], n)
             rankings[index_g] = [self.tools[i] for i in rank]
 
-
         with self.output() as o:
             o.emit(
                 {
@@ -365,29 +410,37 @@ class BagLabelMatrixTask(Task):
 
 class BagFeatureTask(Task):
     out_dir = Parameter('./gram/')
+    svcomp = Parameter('svcomp15')
 
-    def __init__(self, h, D, category=None):
+    def __init__(self, h, D, category=None, task_type=None):
         self.h = h
         self.D = D
         self.category = category
+        self.task_type = task_type
 
     def require(self):
         return [BagGraphIndexTask(self.h,
                                   self.D,
                                   self.category, self.task_type),
-                BagLoadingTask(self.h, self.D)]
+                BagFilterTask(self.h, self.D,
+                              self.category, self.task_type)]
 
     def __taskid__(self):
         cat = 'all'
         if self.category is not None:
             cat = str(containerHash(self.category))
 
-        return 'BagFeatureTask_%d_%d_%s' % (self.h, self.D, cat)
+        tt = ''
+        if self.task_type is not None:
+            tt = '_'+str(self.task_type)
+
+        return 'BagFeatureTask_%d_%d_%s' % (self.h, self.D, cat)\
+               + tt
 
     def output(self):
         path = self.out_dir.value + self.__taskid__() + '.json'
         return CachedTarget(
-            LocalTarget(path, service=JsonService)
+            LocalTarget(path, service=FeatureJsonService)
         )
 
     def run(self):
@@ -395,27 +448,16 @@ class BagFeatureTask(Task):
             graphIndex = i.query()
 
         with self.input()[1] as i:
-            bag = ProgramBags(content=i.query())
+            bag = ProgramBags(content=i.query(), svcomp=self.svcomp.value)
 
         bag.graphIndex = graphIndex
 
-        if self.category is not None:
-            bag = bag.get_category(self.category)
-
         features = bag.features()
-
-        NZ = features.nonzero()
-        data = features[NZ].A
-        shape = features.get_shape()
 
         out = {
             'graphIndex': bag.graphIndex,
             'nodeIndex': bag.nodeIndex,
-            'rows': NZ[0].tolist(),
-            'columns': NZ[1].tolist(),
-            'data': data.tolist(),
-            'row_shape': shape[0],
-            'column_shape': shape[1]
+            'features': features
         }
 
         with self.output() as o:

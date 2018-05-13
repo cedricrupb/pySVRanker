@@ -66,6 +66,7 @@ class PrepareKernelTask(Task):
     out_dir = Parameter('./gram/')
     timeout = Parameter(None)
     rainbow = Parameter(False)
+    descriptive = Parameter(False)
 
     def __init__(self, graph, h, D):
         self.graph = graph
@@ -100,6 +101,20 @@ class PrepareKernelTask(Task):
             self.rainbow_table[hash] = obj
         return hash
 
+    def _describe(self, source, neighbours):
+        prefix = ''
+        if self.descriptive.value:
+            prefix = str(source)[:min(8, len(source))]
+
+        neighbours.append(source)
+
+        return prefix + str(self._hash(
+                                '_'.join(
+                                    [str(t) for t in neighbours
+                                     ]
+                                )
+                            ))
+
     def _collect_labels(self, graph):
         ret = {}
         for u, v, d in graph.in_edges(data=True):
@@ -110,19 +125,14 @@ class PrepareKernelTask(Task):
             edge_t = d['type']
             truth = d['truth']
 
-            long_edge_label = '_'.join(
-                [str(t) for t in [
-                        source,
-                        edge_t,
-                        truth
-                    ]
-                 ]
+            long_edge_label = self._describe(
+                source, [edge_t, truth]
             )
 
             if v not in ret:
                 ret[v] = []
 
-            ret[v].append(self._hash(long_edge_label))
+            ret[v].append(long_edge_label)
         return ret
 
     def run(self):
@@ -142,11 +152,7 @@ class PrepareKernelTask(Task):
 
                 if n not in M:
                     continue
-                s = ''.join([
-                    str(t) for t in sorted(M[n])
-                ])
-                s = str(d['label']) + s
-                label = self._hash(s)
+                label = self._describe(d['label'], sorted(M[n]))
 
                 if label not in count:
                     count[label] = 0

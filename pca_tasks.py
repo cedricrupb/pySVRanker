@@ -7,7 +7,7 @@ from .bag_tasks import BagLoadingTask, BagGraphIndexTask, BagNormalizeGramTask
 from .bag_tasks import BagLabelMatrixTask, index, reverse_index, BagFilterTask
 from scipy.sparse import coo_matrix
 from sklearn.feature_extraction.text import TfidfTransformer
-from sklearn.decomposition import PCA
+from sklearn.decomposition import PCA, KernelPCA, TruncatedSVD
 from sklearn.linear_model import LogisticRegressionCV
 from sklearn.metrics import f1_score, make_scorer
 import time
@@ -15,7 +15,6 @@ import math
 from .rank_scores import select_score
 from sklearn.model_selection import KFold
 from .bag import enumerateable
-
 from scipy.spatial.distance import cdist
 import os
 
@@ -124,7 +123,11 @@ class BagNodeIndexTask(Task):
                 list(count.items()), key=lambda k: k[1], reverse=True
             )
         ]
-        index = index[:min(len(index), self.max_features.value)]
+
+        len = min(len(index), self.max_features.value)
+        if len < 0:
+            len = len(index)
+        index = index[:len]
         index = {
             k: i for i, k in enumerate(index)
         }
@@ -151,7 +154,7 @@ class PreparedFeatureTask(Task):
                                 self.category, self.task_type)]
         out.extend([BagFilterTask(h, self.D,
                                   self.category, self.task_type)
-                    for h in range(self.h)])
+                    for h in range(self.h + 1)])
         return out
 
     def __taskid__(self):
@@ -238,6 +241,76 @@ class PCAFeatureTask(Task):
     components = Parameter(0.99)
     whiten = Parameter(False)
 
+    def __init__(self, h, D, category=None, task_type=None,
+                 kernel=None):
+        self.h = h
+        self.D = D
+        self.category = category
+        self.task_type = task_type
+        self.kernel = kernel
+
+    def require(self):
+        if self.kernel is None:
+            return PreparedFeatureTask(self.h, self.D,
+                                       self.category, self.task_type)
+        h = [h for h in range(self.h+1)]
+        return BagNormalizeGramTask(h, self.D,
+                                    self.category, self.task_type)
+
+    def __taskid__(self):
+        s = 'PCAFeatureTask_%d_%d' % (self.h, self.D)
+        if self.category is not None:
+            s += '_'+str(containerHash(self.category))
+        if self.task_type is not None:
+            s += '_'+str(self.task_type)
+        if self.kernel is not None:
+            s += '_'+str(self.kernel)
+        return s
+
+    def output(self):
+        path = self.out_dir.value + self.__taskid__() + '.json'
+        return CachedTarget(
+            LocalTarget(path, service=JsonService)
+        )
+
+    def run(self):
+        with self.input()[0] as i:
+            D = i.query()
+
+        graphIndex = D['graphIndex']
+
+        if self.kernel is None:
+            X = coo_matrix((D['data'], (D['rows'], D['columns'])),
+                           shape=(D['row_shape'],
+                                  D['column_shape']),
+                           dtype=np.float64).todense()
+            pca = PCA(n_components=self.components.value,
+                      whiten=self.whiten.value)
+        else:
+            X = np.array(D['data'])
+            pca = KernelPCA(
+                n_components=500,
+                kernel='precomputed',
+                n_jobs=-1,
+                remove_zero_eig=True
+            )
+
+        X = pca.fit_transform(X)
+        print('Reduced features: %s' % str(X.shape))
+
+        with self.output() as o:
+            o.emit(
+                {
+                    'graphIndex': graphIndex,
+                    'matrix': X.tolist()
+                }
+            )
+
+
+class SVDFeatureTask(Task):
+    out_dir = Parameter('./gram/')
+    components = Parameter(1000)
+
     def __init__(self, h, D, category=None, task_type=None):
         self.h = h
         self.D = D
@@ -249,7 +322,7 @@ class PCAFeatureTask(Task):
                                    self.category, self.task_type)
 
     def __taskid__(self):
-        s = 'PCAFeatureTask_%d_%d' % (self.h, self.D)
+        s = 'SVDFeatureTask_%d_%d' % (self.h, self.D)
         if self.category is not None:
             s += '_'+str(containerHash(self.category))
         if self.task_type is not None:
@@ -271,10 +344,12 @@ class PCAFeatureTask(Task):
         X = coo_matrix((D['data'], (D['rows'], D['columns'])),
                        shape=(D['row_shape'],
                               D['column_shape']),
-                       dtype=np.float64).todense()
+                       dtype=np.float64).tocsr()
+        svd = TruncatedSVD(
+            n_components=self.components.value
+        )
 
-        pca = PCA(n_components=self.components.value, whiten=self.whiten.value)
-        X = pca.fit_transform(X)
+        X = svd.fit_transform(X)
         print('Reduced features: %s' % str(X.shape))
 
         with self.output() as o:
@@ -378,9 +453,9 @@ class BagCalculateGramTask(Task):
         )
 
     def run(self):
-        in_path = self.input()[0].sandBox + self.input()[0].path
-        out_path = self.output().sandBox + self.output().path
-        os.link(in_path, out_path)
+        with self.input()[0] as i:
+            with self.output() as o:
+                o.emit(i.query())
 
 
 class TrainLRTask(Task):
@@ -389,7 +464,7 @@ class TrainLRTask(Task):
     max_iter = Parameter(100)
 
     def __init__(self, ix, iy, Cs, h, D, train_index, test_index,
-                 category=None, task_type=None):
+                 category=None, task_type=None, kernel=None):
         self.ix = ix
         self.iy = iy
         self.Cs = Cs
@@ -399,24 +474,25 @@ class TrainLRTask(Task):
         self.test_index = test_index
         self.category = category
         self.task_type = task_type
+        self.kernel = kernel
 
     def require(self):
         out = [BagLabelMatrixTask(self.h, self.D,
                                   self.category, self.task_type),
                PCAFeatureTask(self.h, self.D,
-               self.category, self.task_type)]
+               self.category, self.task_type, self.kernel)]
 
         if self.ix < self.iy:
             out.extend([
                 TrainLRTask(
                     self.ix, self.ix, self.Cs, self.h, self.D,
                     self.train_index, self.test_index,
-                    self.category, self.task_type
+                    self.category, self.task_type, self.kernel
                 ),
                 TrainLRTask(
                     self.iy, self.iy, self.Cs, self.h, self.D,
                     self.train_index, self.test_index,
-                    self.category, self.task_type
+                    self.category, self.task_type, self.kernel
                 )
             ])
 
@@ -513,7 +589,7 @@ class EvaluateLRTask(Task):
     out_dir = Parameter('./eval/')
 
     def __init__(self, tool_count, Cs, h, D, scores, train_index, test_index,
-                 category=None, task_type=None):
+                 category=None, task_type=None, kernel=None):
         self.tool_count = tool_count
         self.Cs = Cs
         self.h = h
@@ -523,6 +599,7 @@ class EvaluateLRTask(Task):
         self.test_index = test_index
         self.category = category
         self.task_type = task_type
+        self.kernel = kernel
 
     def require(self):
         out = [BagGraphIndexTask(self.h, self.D,
@@ -535,7 +612,7 @@ class EvaluateLRTask(Task):
             out.append(
                 TrainLRTask(i, i, self.Cs, self.h, self.D,
                             self.train_index, self.test_index,
-                            self.category, self.task_type)
+                            self.category, self.task_type, self.kernel)
             )
 
         for i in range(self.tool_count):
@@ -543,7 +620,7 @@ class EvaluateLRTask(Task):
                 out.append(
                     TrainLRTask(i, j, self.Cs, self.h, self.D,
                                 self.train_index, self.test_index,
-                                self.category, self.task_type)
+                                self.category, self.task_type, self.kernel)
                 )
         return out
 
