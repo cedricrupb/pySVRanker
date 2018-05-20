@@ -1,4 +1,4 @@
-from pyTasks.task import Parameter, Task
+from pyTasks.task import Parameter, Task, Optional
 from urllib.parse import quote_plus
 from pymongo import MongoClient
 from pymongo.errors import DuplicateKeyError, BulkWriteError
@@ -409,7 +409,7 @@ class MongoSimTask(Task):
 
     def require(self):
         return [
-            MongoWLTask(g, self.h, self.maxDepth)
+            Optional(MongoWLTask(g, self.h, self.maxDepth))
             for g in self.graphs
         ]
 
@@ -480,3 +480,36 @@ class MongoSimTask(Task):
 
                     with self.output() as mongo_out:
                         mongo_out.collection.insert_many(bulk)
+
+
+class MongoSetupTask(Task):
+    collection = Parameter('graph_sim')
+
+    def __init__(self, graphs, h, maxDepth):
+        self.graphs = graphs
+        self.h = h
+        self.maxDepth = maxDepth
+
+    def require(self):
+        out = [
+            MongoGraphTask(g, self.maxDepth)
+            for g in self.graphs
+        ]
+        out.extend(
+            [MongoGraphLabelTask(self.graphs),
+             MongoSimTask(self.graphs, self.h, self.maxDepth)]
+        )
+        return out
+
+    def __taskid__(self):
+        return 'MongoSetupTask_%d_%d' % (
+            self.h, self.maxDepth
+        )
+
+    def output(self):
+        return MongoResourceTarget(
+            self.collection.value,
+            'graph_id', 'graphs'
+        )
+    def run(self):
+        pass
