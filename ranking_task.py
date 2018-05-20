@@ -104,7 +104,6 @@ class ExtractInfoTask(Task):
         for g in self.graphs:
             gKey = index['index'][g]
             score_rank = {}
-            max_score = -20
             for cat, D in tools.items():
                 for t, D in D.items():
                     if gKey not in D.index:

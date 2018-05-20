@@ -54,8 +54,8 @@ def cross_val(clf, X, y, metrics, cv=10):
         y_train, y_test = y[train_index], y[test_index]
 
         model = clone(clf)
-        model.fit(X_train, y_train)
 
+        model.fit(X_train, y_train)
         pred = model.predict(X_test)
 
         for name, metric in metrics.items():
