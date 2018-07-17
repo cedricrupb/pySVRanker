@@ -178,6 +178,7 @@ class HyperSingleOptimizationTask(Task):
         self.category = category
         self.task_type = task_type
         self.kernel = kernel
+        self.support_ = []
 
     def require(self):
         train, validate = train_test_split(self.train_index, test_size=0.33,
@@ -208,6 +209,9 @@ class HyperSingleOptimizationTask(Task):
                                                        )
                                                   )
 
+    def __stats__(self):
+        return {'support_vector': self.support_.tolist()}
+
     def output(self):
         path = self.out_dir.value + self.__taskid__() + '.json'
         return CachedTarget(
@@ -237,6 +241,7 @@ class HyperSingleOptimizationTask(Task):
         with self.input()[1] as i:
             D = i.query()
         graphIndex = D['graphIndex']
+        rev_gI = np.array([x[0] for x in sorted(graphIndex.items(), key=lambda x: x[1])])
         X = np.array(D['data'])
         del D
 
@@ -255,6 +260,8 @@ class HyperSingleOptimizationTask(Task):
         start_time = time.time()
         clf.fit(X_train, y_train)
         out['train_time'] = time.time() - start_time
+
+        self.support_ = rev_gI[clf.support_]
 
         start_time = time.time()
         out['prediction'] = clf.predict(X_test).tolist()

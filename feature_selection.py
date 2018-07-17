@@ -16,7 +16,7 @@ import time
 import math
 from .rank_scores import select_score
 from sklearn.model_selection import KFold
-from scipy.spatial.distance import cdist
+from scipy.spatial.distance import cdist, pdist, squareform
 from .kernel_function import select_full
 from .bag import normalize_gram
 from scipy.sparse import vstack, coo_matrix
@@ -24,6 +24,7 @@ from scipy.stats import norm
 import scipy.sparse as sp
 from sklearn.preprocessing import normalize
 from sklearn.feature_selection import SelectKBest, chi2, mutual_info_classif
+from tqdm import trange
 
 
 __divider__ = [':', '_', '/', '\\', '-->', '->']
@@ -131,6 +132,10 @@ def select_transformer(t_id):
         return chi2_transformer
     if t_id == 'mi':
         return mi_transformer
+    if t_id == 'hsic':
+        return hsic_transformer
+    if t_id == 'coverage':
+        return coverage_transformer
 
 
 def tfidf_transformer(nodeIndex, X, y, X_test, params=None):
@@ -296,6 +301,70 @@ def mi_transformer(nodeIndex, X, y, X_test, params=None):
     X = t.fit_transform(X, cat)
     X_test = t.transform(X_test)
     return nodeIndex[t.get_support(indices=True)], X, X_test
+
+
+def resolve_label(y, base):
+    tmp = []
+
+    for i in range(base-1):
+        for j in range(i+1, base):
+            L_i = y[:, index(i, i, base)]
+            L_j = np.logical_not(y[:, index(j, j, base)])
+            L_ij = y[:, index(i, j, base)]
+            T2 = np.logical_or(L_i, L_j)
+            T2 = np.logical_and(T2, L_ij)
+            T = np.logical_and(L_i, L_j)
+            T = np.logical_or(T, T2)
+            tmp.append(T.reshape(T.shape[0], 1))
+
+    return np.hstack(tmp)
+
+
+def label_kernel(y):
+    return np.ones((y.shape[0], y.shape[0])) - squareform(pdist(y, 'hamming'))
+
+
+def hsic_transformer(nodeIndex, X, y, X_test, params=None):
+    count = 1000
+    if params is not None:
+        if 'cut' in params:
+            y = y[:, :int(params['cut'])]
+        if 'count' in params:
+            count = int(params['count'])
+        if 'resolve' in params:
+            y = resolve_label(y, int(params['resolve']))
+    L = label_kernel(y)
+    H = np.full(L.shape, 1/L.shape[0])
+    H = np.diag(np.ones((L.shape[0]))) - H
+    M = H*L*H
+
+    F = X.copy()
+    F[F > 0] = 1
+
+    fs = np.zeros(F.shape[1])
+    for i in trange(fs.shape[0]):
+        fg = F[:, i]
+        fs[i] = (fg.transpose())*M*fg
+    print(fs)
+
+    ix = fs.argsort()[::-1][:count]
+    return nodeIndex[ix], X[:, ix], X_test[:, ix]
+
+
+def coverage_transformer(nodeIndex, X, y, X_test, params=None):
+    count = 1000
+    X_ = X.copy()
+    X_[X_ > 0] = 1
+    X_ = X_.sum(axis=0) / X_.shape[0]
+
+    if params is not None:
+        if 'class' in params:
+            X_ = X_ * _document_frequency(X, y)
+        if 'count' in params:
+            count = int(params['count'])
+
+    ix = X_.argsort()[::-1][:count]
+    return nodeIndex[ix], X[:, ix], X_test[:, ix]
 
 
 class FSFeatureTransformTask(Task):

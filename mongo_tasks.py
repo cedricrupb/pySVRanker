@@ -10,6 +10,7 @@ from scipy.sparse import coo_matrix, diags
 from .kernel_function import jaccard_kernel
 from .prepare_tasks import GraphIndexTask
 from .ranking_task import ExtractInfoTask
+from pyTasks.utils import tick
 import os
 import numpy as np
 import gridfs
@@ -492,13 +493,11 @@ class MongoSetupTask(Task):
 
     def require(self):
         out = [
-            MongoGraphTask(g, self.maxDepth)
-            for g in self.graphs
-        ]
-        out.extend(
-            [MongoGraphLabelTask(self.graphs),
-             MongoSimTask(self.graphs, self.h, self.maxDepth)]
-        )
+                MongoWLTask(g, self.h, self.maxDepth)
+                for g in self.graphs
+            ]
+
+        out.append(MongoGraphLabelTask(self.graphs))
         return out
 
     def __taskid__(self):
@@ -511,5 +510,6 @@ class MongoSetupTask(Task):
             self.collection.value,
             'graph_id', 'graphs'
         )
+
     def run(self):
         pass
