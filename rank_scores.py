@@ -15,6 +15,8 @@ def select_score(type_id, map_graph_to_labels, map_graph_to_times):
         return make_svcomp_score(map_graph_to_labels)
     elif type_id == 'correct':
         return make_correct_score(map_graph_to_labels)
+    elif type_id == 'correct_count':
+        return make_correct_count_score(map_graph_to_labels)
     elif type_id == 'time':
         return make_time_score(map_graph_to_labels, map_graph_to_times)
     elif type_id == 'time_count':
@@ -123,6 +125,20 @@ def make_correct_score(map_graph_to_labels):
         expected_solve = label[expected_ranking[0]]['solve'] == 'correct'
 
         return correct_scoring(prediction_solve, expected_solve)
+
+    return correct_score
+
+
+def make_correct_count_score(map_graph_to_labels):
+
+    def correct_score(prediction_ranking, expected_ranking, graph):
+        if graph is None:
+            raise ValueError('Need graph for calculation')
+
+        label = map_graph_to_labels[graph]
+        prediction_solve = label[prediction_ranking[0]]['solve'] == 'correct'
+
+        return 1 if prediction_solve else 0
 
     return correct_score
 
