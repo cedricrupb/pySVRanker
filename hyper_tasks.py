@@ -9,11 +9,11 @@ import numpy as np
 from sklearn.model_selection import KFold
 from sklearn.model_selection import train_test_split
 from sklearn.base import clone
-from sklearn import svm
 import time
 import math
 from .rank_scores import select_score
 from .bag_tasks import BagLabelMatrixTask, index, reverse_index, ranking
+from .classification import MajorityOrSVC
 
 
 def divide(A, B):
@@ -132,7 +132,7 @@ class HyperCrossPredictTask(Task):
         X_train, X_test = X[train_index][:, train_index], X[test_index][:, train_index]
         y_train = y[train_index]
 
-        clf = svm.SVC(C=self.C, kernel='precomputed')
+        clf = MajorityOrSVC(C=self.C)
 
         if self.eval:
             metrics = {
@@ -255,7 +255,7 @@ class HyperSingleOptimizationTask(Task):
         X_train, X_test = X[train_index][:, train_index], X[test_index][:, train_index]
         y_train = y[train_index]
 
-        clf = svm.SVC(C=C, kernel='precomputed')
+        clf = MajorityOrSVC(C=C)
 
         start_time = time.time()
         clf.fit(X_train, y_train)
