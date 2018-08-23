@@ -23,6 +23,8 @@ def select_score(type_id, map_graph_to_labels, map_graph_to_times):
         return make_time_count_score(map_graph_to_labels, map_graph_to_times)
     elif type_id == 'inv_time':
         return make_inv_time_score(map_graph_to_labels, map_graph_to_times)
+    elif type_id == "fail_fast":
+        return make_fail_fast_count(map_graph_to_labels)
     else:
         raise ValueError('Unknown score %s' % type_id)
 
@@ -201,3 +203,23 @@ def make_inv_time_score(map_graph_to_labels, map_graph_to_times):
         return 1 - score(prediction_ranking, expected_ranking)
 
     return inv_time_score
+
+
+def make_fail_fast_count(map_graph_to_labels):
+
+    def fail_fast_count(prediction_ranking, expected_ranking, graph):
+        if graph is None:
+            raise ValueError('Need graph for calculation')
+
+        label = map_graph_to_labels[graph]
+
+        pL = label[prediction_ranking[0]]
+        eL = label[prediction_ranking[1]]
+
+        if pL['solve'] == 'false' and eL['solve'] == 'false':
+            if float(pL['time']) <= eL['time']:
+                return 1
+
+        return 0
+
+    return fail_fast_count
