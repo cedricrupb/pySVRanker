@@ -76,6 +76,12 @@ class MajorityOrSVC(BaseEstimator, ClassifierMixin):
         else:
             print('!!!! Majority %s !!!' % str(self._classifier))
 
+    def __getattr__(self, name):
+        if isinstance(self._classifier, SVC)\
+            and hasattr(self._classifier, name):
+            return getattr(self._classifier, name)
+        raise AttributeError('%s does not exists for MajorityOrSVC' % name)
+
     def predict(self, X):
         if isinstance(self._classifier, SVC):
             return self._classifier.predict(X)
