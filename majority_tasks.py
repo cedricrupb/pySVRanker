@@ -53,11 +53,11 @@ class MajorityEvaluationTask(Task):
                 self.task_type = task_type
 
     def require(self):
-        out = [BagGraphIndexTask(self.h, self.D,
+        out = [BagGraphIndexTask(0, 1,
                                  self.category, self.task_type),
-               BagFilterTask(self.h, self.D,
+               BagFilterTask(0, 1,
                              self.category, self.task_type),
-               BagLabelMatrixTask(self.h, self.D,
+               BagLabelMatrixTask(0, 1,
                                   self.category, self.task_type)]
         return out
 
