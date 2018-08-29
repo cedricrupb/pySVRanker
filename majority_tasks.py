@@ -31,7 +31,7 @@ class BorderMajorityClassifier(BaseEstimator, ClassifierMixin):
                     count[r] = 0
                 count[r] += value
 
-        ranking = sorted([(k, c) for k, c in count.items()], keys=lambda x: x[1])
+        ranking = sorted([(k, c) for k, c in count.items()], key=lambda x: x[1])
         self.ranking = [k for k, c in ranking]
 
     def predict_rank(self, X):
