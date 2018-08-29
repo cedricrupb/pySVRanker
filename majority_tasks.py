@@ -205,11 +205,9 @@ class CVMajorityEvalutionTask(Task):
                 D = {}
                 with inp as i:
                     T = i.query()
-                D['C'] = T['C']
                 D['result'] = T['result']
                 del T
                 out.append(D)
-            max_C = max(out, key=lambda D: D['result'][self.opt_score])['C']
 
             results = {}
             for i, D in enumerate(out):
@@ -225,7 +223,6 @@ class CVMajorityEvalutionTask(Task):
                 o.emit(
                     {
                         'param': self.get_params(),
-                        'C': max_C,
                         'results': results
                     }
                 )
