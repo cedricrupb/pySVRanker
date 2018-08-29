@@ -216,6 +216,7 @@ class BagFilterTask(Task):
         prop = self._svcomp.select_propety(self.task_type)
 
         def filter(category, property):
+            print(property)
             if prop is not None and prop is not property:
                 return False
 

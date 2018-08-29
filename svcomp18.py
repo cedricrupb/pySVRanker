@@ -159,14 +159,14 @@ def _extract_property_type(vtask_path):
     base_path = vtask_path
 
     # TODO: Elimate this
-    if 'unreach' in base_path:
-        return PropertyType.unreachability
     if 'valid' in base_path:
         return PropertyType.memory_safety
     if 'overflow' in base_path:
         return PropertyType.overflow
     if 'termination' in base_path:
         return PropertyType.termination
+    if 'unreach' in base_path:
+        return PropertyType.unreachability
 
 
     unreachability_pattern = re.compile(r'CHECK\([_\s\w\(\)]+,\s*LTL\(\s*G\s*!\s*call\([_\w\s\(\)]+\)\s*\)\s*\)')
