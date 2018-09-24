@@ -278,7 +278,8 @@ class CzechSingleOptimizationTask(Task):
 
         C = max_param['param']['C']
 
-        out = {'param': self.get_params(), 'C': C}
+        out = {'param': self.get_params(), 'C': C,
+               'evalution': max_param['evaluation']}
 
         train_index = self.train_index
         test_index = self.test_index
@@ -400,6 +401,7 @@ class CzechSingleEvaluationTask(Task):
         rank_expect = [y[i] for i in self.test_index]
 
         C_param = {}
+        eval_param = {}
 
         cols = []
         for i in range(3, len(self.input())):
@@ -408,9 +410,11 @@ class CzechSingleEvaluationTask(Task):
                 D = i.query()
                 col = np.array(D['prediction'])
                 C_param[(x, y)] = D['C']
+                eval_param = D['evaluation']
             cols.append(col)
 
         C_param = [[x, y, c] for (x, y), c in C_param.items()]
+        eval_param = [[x, y, eval] for (x, y), eval in eval_param.items()]
         M = np.column_stack(cols)
 
         rank_pred = [ranking(M[i, :], self.tool_count)
@@ -441,7 +445,8 @@ class CzechSingleEvaluationTask(Task):
                     'parameter': self.get_params(),
                     'C': C_param,
                     'result': empirical,
-                    'raw_results': raw_empircal
+                    'raw_results': raw_empircal,
+                    'evaluation': eval_param
                 }
             )
 
@@ -515,9 +520,12 @@ class CVCzechSingleEvalutionTask(Task):
                     T = i.query()
                 D['C'] = T['C']
                 D['result'] = T['result']
+                D['evaluation'] = T['evaluation']
                 del T
                 out.append(D)
-            max_C = max(out, key=lambda D: D['result'][self.opt_score])['C']
+            max_D = max(out, key=lambda D: D['result'][self.opt_score])
+            max_C = max_D['C']
+            max_E = max_D['evaluation']
 
             results = {}
             for i, D in enumerate(out):
@@ -534,6 +542,7 @@ class CVCzechSingleEvalutionTask(Task):
                     {
                         'param': self.get_params(),
                         'C': max_C,
+                        'evaluation': max_E,
                         'results': results
                     }
                 )
