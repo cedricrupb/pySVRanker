@@ -248,7 +248,7 @@ class HyperSingleOptimizationTask(Task):
         C = max_param['param']['C']
 
         out = {'param': self.get_params(), 'C': C,
-               'evalution': max_param['evaluation']}
+               'evaluation': max_param['evaluation']}
 
         train_index = self.train_index
         test_index = self.test_index
