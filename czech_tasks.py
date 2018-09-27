@@ -410,7 +410,7 @@ class CzechSingleEvaluationTask(Task):
                 D = i.query()
                 col = np.array(D['prediction'])
                 C_param[(x, y)] = D['C']
-                eval_param = D['evaluation']
+                eval_param[(x, y)] = D['evaluation']
             cols.append(col)
 
         C_param = [[x, y, c] for (x, y), c in C_param.items()]

@@ -378,6 +378,7 @@ class HyperSingleEvaluationTask(Task):
         rank_expect = [y[i] for i in self.test_index]
 
         C_param = {}
+        eval_param = {}
 
         cols = []
         for i in range(3, len(self.input())):
@@ -386,10 +387,11 @@ class HyperSingleEvaluationTask(Task):
                 D = i.query()
                 col = np.array(D['prediction'])
                 C_param[(x, y)] = D['C']
-                eval_param = D['evaluation']
+                eval_param[(x, y)] = D['evaluation']
             cols.append(col)
 
         C_param = [[x, y, c] for (x, y), c in C_param.items()]
+        eval_param = [[x, y, c] for (x, y), c in C_param.items()]
         M = np.column_stack(cols)
 
         rank_pred = [ranking(M[i, :], self.tool_count)
