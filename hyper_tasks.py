@@ -391,7 +391,7 @@ class HyperSingleEvaluationTask(Task):
             cols.append(col)
 
         C_param = [[x, y, c] for (x, y), c in C_param.items()]
-        eval_param = [[x, y, c] for (x, y), c in C_param.items()]
+        eval_param = [[x, y, c] for (x, y), c in eval_param.items()]
         M = np.column_stack(cols)
 
         rank_pred = [ranking(M[i, :], self.tool_count)
