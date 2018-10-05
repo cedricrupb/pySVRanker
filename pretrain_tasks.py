@@ -86,12 +86,8 @@ class LinearSVMTask(Task):
         train_index = self.train_index
         test_index = self.test_index
 
-        transform = TfidfTransformer()
-
         X_train = X[train_index]
-        X_train = transform.fit_transform(X_train)
         X_test = X[test_index]
-        X_test = transform.transform(X_test)
         y_train = y[train_index]
 
         clf = LinearSVC(dual=False)
@@ -118,11 +114,6 @@ class LinearSVMTask(Task):
         out['intercept'] = svc.intercept_[0]
         out['prediction'] = clf.predict(X_test).tolist()
         out['prediction_insample'] = svc.predict(X_test).tolist()
-        out['idf'] = {}
-
-        idf = transform.idf_
-        for i in range(idf.shape[0]):
-            out['idf'][rev[i]] = idf[i]
 
         with self.output() as o:
             o.emit(out)
@@ -248,6 +239,8 @@ class SVMSingleEvaluationTask(Task):
 
         for i in range(len(rank_pred)):
             rank_pred[i] = [tools[t] for t in rank_pred[i]]
+        for i in range(len(rank_pred_in)):
+            rank_pred_in[i] = [tools[t] for t in rank_pred_in[i]]
 
         y, times = self._build_maps()
         scores = self._build_score(y, times)
@@ -256,6 +249,7 @@ class SVMSingleEvaluationTask(Task):
         empirical_in = {}
         for i, pred in enumerate(rank_pred):
             pred_in = rank_pred_in[i]
+            print(pred_in)
             expected = rank_expect[i]
             g = graphs[i]
             for k, score in scores.items():
