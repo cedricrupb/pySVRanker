@@ -99,18 +99,21 @@ class LinearSVMTask(Task):
             'C': self.C
         }
         scores = ['f1', 'precision', 'recall', 'accuracy']
-        clf = GridSearchCV(clf, params, scores, cv=self.cv, refit='f1')
+        clf = GridSearchCV(clf, params, scores, cv=self.cv.value, refit='f1')
         clf.fit(X_train, y_train)
         svc = LinearSVC(C=clf.best_params_['C'], dual=False)
         svc.fit(X, y)
 
         out['C'] = clf.best_params_['C']
         out['result'] = clf.cv_results_
+        del out['result']['params']
+        for k in out['result'].keys():
+            out['result'][k] = out['result'][k].tolist()
         out['coef'] = {}
 
         coef = svc.coef_
-        for i in range(coef.shape[0]):
-            out['coef'][rev[i]] = coef[i]
+        for i in range(coef.shape[1]):
+            out['coef'][rev[i]] = coef[0, i]
 
         out['intercept'] = svc.intercept_[0]
         out['prediction'] = clf.predict(X_test).tolist()
@@ -158,7 +161,7 @@ class SVMSingleEvaluationTask(Task):
                         LinearSVMTask(
                             i, j, self.CSet, self.h, self.D,
                             self.train_index, self.test_index,
-                            self.category, self.task_type, self.kernel
+                            self.category, self.task_type
                         )
                     )
         return out
