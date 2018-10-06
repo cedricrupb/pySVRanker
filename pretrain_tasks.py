@@ -24,6 +24,15 @@ def ranking(row, n):
     return N.argsort()[::-1]
 
 
+def accumulate_label(ii, jj, ij):
+    y = np.zeros(ii.shape)
+
+    for i in range(len(ii)):
+        y[i] = ii[i]*(1 - jj[i]) + (ii[i]*jj[i] + (1-ii[i])*(1-jj[i])) * ij[i]
+
+    return y
+
+
 class LinearSVMTask(Task):
     out_dir = Parameter('./svm/')
     cv = Parameter(10)
@@ -69,7 +78,12 @@ class LinearSVMTask(Task):
             D = i.query()
 
         n = len(D['tools'])
-        y = np.array(D['label_matrix'])[:, index(self.ix, self.iy, n)]
+        y =\
+            accumulate_label(
+                np.array(D['label_matrix'])[:, index(self.ix, self.ix, n)],
+                np.array(D['label_matrix'])[:, index(self.iy, self.iy, n)],
+                np.array(D['label_matrix'])[:, index(self.ix, self.iy, n)]
+            )
         del D
 
         with self.input()[1] as i:
