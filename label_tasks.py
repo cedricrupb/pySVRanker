@@ -62,7 +62,7 @@ class RunCPATask(Task):
         try:
             proc = subprocess.run([cpash_path,
                                    '-config', self.config,
-                                   '-spec', self.spec
+                                   '-spec', self.spec,
                                    '-heap', self.heap.value,
                                    path_to_source,
                                    '-outputpath', output_path
