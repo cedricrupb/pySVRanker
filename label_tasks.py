@@ -13,6 +13,8 @@ from pyTasks.utils import tick
 import os
 from .svcomp18 import _extract_expected_status
 from .svcomp15 import Status
+import shutil
+import time
 
 
 class RunCPATask(Task):
@@ -55,14 +57,23 @@ class RunCPATask(Task):
         output_path = join(__path_to_cpachecker__, output)
         statistics = join(__path_to_cpachecker__, output, 'Statistics.txt')
 
+        specification = join(__path_to_cpachecker__, self.spec)
+        config = join(__path_to_cpachecker__, self.config)
+
         if not isdir(__path_to_cpachecker__):
             raise ValueError('CPAChecker directory not found: %s' % __path_to_cpachecker__)
         if not (isfile(path_to_source) and (path_to_source.endswith('.i') or path_to_source.endswith('.c'))):
             raise ValueError('path_to_source is no valid filepath. [%s]' % path_to_source)
+
+        if isdir(output_path):
+            shutil.rmtree(output_path+"/", ignore_errors=True)
+
+        start_time = time.time()
+
         try:
             proc = subprocess.run([cpash_path,
-                                   '-config', self.config,
-                                   '-spec', self.spec,
+                                   '-config', config,
+                                   '-spec', specification,
                                    '-heap', self.heap.value,
                                    path_to_source,
                                    '-outputpath', output_path
@@ -70,8 +81,7 @@ class RunCPATask(Task):
                                   check=False, stdout=PIPE, stderr=PIPE,
                                   timeout=self.timeout.value)
 
-            if not isfile(statistics):
-                raise ValueError('Invalid output of CPAChecker: Missing statistics')
+            S = proc.stdout.decode('utf-8')
 
         except ValueError as err:
             logging.error(err)
@@ -80,29 +90,21 @@ class RunCPATask(Task):
             logging.error(proc.stderr.decode('utf-8'))
             raise err
 
-        with open(statistics, 'r') as i:
-            S = i.read()
-
+        print(S)
         match_vresult = re.search(r'Verification\sresult:\s([A-Z]+)\.',  S)
         if match_vresult is None:
             raise ValueError('Invalid output of CPAChecker.')
         analysis_output = match_vresult.group(1)
-
-        match_vresult = re.search(r'Total\stime\sfor\sCPAchecker:\s*([1-9][0-9]*\.[0-9]+)s', S)
-        if match_vresult is None:
-            raise ValueError('Invalid output of CPAChecker.')
-        analysis_time = float(match_vresult.group(1))
 
         if expected_result:
             analysis_output = analysis_output == 'TRUE'
         else:
             analysis_output = analysis_output == 'FALSE'
 
+        analysis_time = time.time() - start_time
+
         print(analysis_output)
         print(analysis_time)
-
-        if isdir(output_path):
-            os.rmdir(output_path+"/")
 
         with self.output() as o:
             o.emit({
