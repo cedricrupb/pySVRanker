@@ -55,7 +55,7 @@ class RunCPATask(Task):
         statistics = join(__path_to_cpachecker__, output, 'Statistics.txt')
 
         if not isdir(__path_to_cpachecker__):
-            raise ValueError('CPAChecker directory not found')
+            raise ValueError('CPAChecker directory not found: %s' % __path_to_cpachecker__)
         if not (isfile(path_to_source) and (path_to_source.endswith('.i') or path_to_source.endswith('.c'))):
             raise ValueError('path_to_source is no valid filepath. [%s]' % path_to_source)
         try:
