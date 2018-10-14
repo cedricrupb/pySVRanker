@@ -91,7 +91,7 @@ class RunCPATask(Task):
             raise err
 
         print(S)
-        match_vresult = re.search(r'Verification\sresult:\s([A-Z]+)\.',  S)
+        match_vresult = re.search(r'Verification\sresult:\s([A-Z]+)(\.|,)',  S)
         if match_vresult is None:
             raise ValueError('Invalid output of CPAChecker.')
         analysis_output = match_vresult.group(1)
