@@ -111,7 +111,7 @@ class RunCPATask(Task):
         )
 
     def __taskid__(self):
-        return 'RunCPATask_' + '_'.join([self.name, self.spec[:-10]])
+        return 'RunCPATask_' + '_'.join([self.name, self.spec[-10:]])
 
 
 class BenchSpecTask(Task):
@@ -125,7 +125,7 @@ class BenchSpecTask(Task):
         return [RunCPATask(p, self.spec) for p in self.programs]
 
     def __taskid__(self):
-        return "BenchSpecTask_"+self.spec[:-10]
+        return "BenchSpecTask_"+self.spec[-10:]
 
     def output(self):
         path = self.out_dir.value + self.__taskid__() + '.json'
