@@ -22,8 +22,9 @@ class RunCPATask(Task):
     timeout = Parameter(None)
     localize = Parameter(None)
 
-    def __init__(self, name, spec):
+    def __init__(self, name, config, spec):
         self.name = name
+        self.config = config
         self.spec = spec
 
     def require(self):
@@ -60,10 +61,11 @@ class RunCPATask(Task):
             raise ValueError('path_to_source is no valid filepath. [%s]' % path_to_source)
         try:
             proc = subprocess.run([cpash_path,
-                                   '-spec', self.spec,
+                                   '-config', self.config,
+                                   '-spec', self.spec
                                    '-heap', self.heap.value,
                                    path_to_source,
-                                   '-outputpath', __path_to_cpachecker__
+                                   '-outputpath', output_path
                                    ],
                                   check=False, stdout=PIPE, stderr=PIPE,
                                   timeout=self.timeout.value)
@@ -81,24 +83,31 @@ class RunCPATask(Task):
         with open(statistics, 'r') as i:
             S = i.read()
 
+        match_vresult = re.search(r'Verification\sresult:\s([A-Z]+)\.',  S)
+        if match_vresult is None:
+            raise ValueError('Invalid output of CPAChecker.')
+        analysis_output = match_vresult.group(1)
+
         match_vresult = re.search(r'Total\stime\sfor\sCPAchecker:\s*([1-9][0-9]*\.[0-9]+)s', S)
         if match_vresult is None:
             raise ValueError('Invalid output of CPAChecker.')
         analysis_time = float(match_vresult.group(1))
-
-        match_vresult = re.search(r'Verification\sresult:\s([A-Z]+)\.', S)
-        if match_vresult is None:
-            raise ValueError('Invalid output of CPAChecker.')
-        analysis_output = match_vresult.group(1)
 
         if expected_result:
             analysis_output = analysis_output == 'TRUE'
         else:
             analysis_output = analysis_output == 'FALSE'
 
+        print(analysis_output)
+        print(analysis_time)
+
+        if isdir(output_path):
+            os.rmdir(output_path+"/")
+
         with self.output() as o:
             o.emit({
                 'spec': self.spec,
+                'config': self.config,
                 'program': path_to_source,
                 'solve': analysis_output,
                 'time': analysis_time
@@ -117,12 +126,13 @@ class RunCPATask(Task):
 class BenchSpecTask(Task):
     out_dir = Parameter('./out/graph/')
 
-    def __init__(self, programs, spec):
+    def __init__(self, programs, config, spec):
         self.programs = programs
+        self.config = config
         self.spec = spec
 
     def require(self):
-        return [RunCPATask(p, self.spec) for p in self.programs]
+        return [RunCPATask(p, self.config, self.spec) for p in self.programs]
 
     def __taskid__(self):
         return "BenchSpecTask_"+self.spec[-10:]
