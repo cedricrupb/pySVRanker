@@ -105,13 +105,13 @@ class RunCPATask(Task):
             })
 
     def output(self):
-        path = self.out_dir.value + self.name + '.json'
+        path = self.out_dir.value + self.__taskid__() + '.json'
         return CachedTarget(
             LocalTarget(path, service=JsonService)
         )
 
     def __taskid__(self):
-        return 'RunCPATask_' + '_'.join(self.name, self.spec)
+        return 'RunCPATask_' + '_'.join([self.name, self.spec[:-10]])
 
 
 class BenchSpecTask(Task):
@@ -125,10 +125,10 @@ class BenchSpecTask(Task):
         return [RunCPATask(p, self.spec) for p in self.programs]
 
     def __taskid__(self):
-        return "BenchSpecTask_"+self.spec
+        return "BenchSpecTask_"+self.spec[:-10]
 
     def output(self):
-        path = self.out_dir.value + self.name + '.json'
+        path = self.out_dir.value + self.__taskid__() + '.json'
         return CachedTarget(
             LocalTarget(path, service=JsonService)
         )
