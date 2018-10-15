@@ -229,8 +229,7 @@ class SVMSingleEvaluationTask(Task):
 
         rank_expect = [y[i] for i in self.test_index]
 
-        C_param = {}
-        eval_param = {}
+        svm_param = {}
 
         cols = []
         cols_insample = []
@@ -240,6 +239,14 @@ class SVMSingleEvaluationTask(Task):
                 D = i.query()
                 col = np.array(D['prediction'])
                 col_in = np.array(D['prediction_insample'])
+                xI = tools[x]
+                yI = tools[y]
+                if xI not in svm_param:
+                    svm_param[xI] = {}
+                if yI not in svm_param[x]:
+                    svm_param[xI][yI] = {}
+                svm_param[xI][yI]['coef'] = D['coef']
+                svm_param[xI][yI]['intercept'] = D['intercept']
             cols.append(col)
             cols_insample.append(col_in)
 
@@ -281,7 +288,8 @@ class SVMSingleEvaluationTask(Task):
                 {
                     'parameter': self.get_params(),
                     'result': empirical,
-                    'result_insample': empirical_in
+                    'result_insample': empirical_in,
+                    'svm_param': svm_param
                 }
             )
 
