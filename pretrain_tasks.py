@@ -6,7 +6,7 @@ from .pca_tasks import BagCalculateGramTask
 from .bag_tasks import BagLabelMatrixTask, BagFeatureTask, index, reverse_index
 import numpy as np
 from sklearn.model_selection import GridSearchCV
-from sklearn.svm import LinearSVC
+from sklearn.svm import LinearSVC, SVC
 from .bag_tasks import BagFilterTask, BagGraphIndexTask
 from sklearn.model_selection import KFold
 from .rank_scores import select_score
@@ -31,6 +31,114 @@ def accumulate_label(ii, jj, ij):
         y[i] = ii[i]*(1 - jj[i]) + (ii[i]*jj[i] + (1-ii[i])*(1-jj[i])) * ij[i]
 
     return y
+
+
+class KernelSVMTask(Task):
+    out_dir = Parameter('./svm/')
+    cv = Parameter(10)
+
+    def __init__(self, ix, iy, C, h, D,
+                 train_index, test_index,
+                 category=None, task_type=None,
+                 kernel='linear'):
+        self.ix = ix
+        self.iy = iy
+        self.C = C
+        self.h = h
+        self.D = D
+        self.test_index = test_index
+        self.train_index = train_index
+        self.category = category
+        self.task_type = task_type
+        self.kernel = kernel
+
+    def require(self):
+        return [BagLabelMatrixTask(self.h, self.D,
+                                   self.category, self.task_type),
+                BagCalculateGramTask(self.h, self.D,
+                                     category=self.category,
+                                     task_type=self.task_type,
+                                     kernel=self.kernel)]
+
+    def __taskid__(self):
+        return 'KernelSVMTask_%s' % (str(
+                                                      containerHash(
+                                                                    list(
+                                                                         self.get_params().items()
+                                                                        )
+                                                                    )
+                                                       )
+                                                  )
+
+    def output(self):
+        path = self.out_dir.value + self.__taskid__() + '.json'
+        return CachedTarget(
+            LocalTarget(path, service=JsonService)
+        )
+
+    def run(self):
+        with self.input()[0] as i:
+            D = i.query()
+
+        n = len(D['tools'])
+        y =\
+            accumulate_label(
+                np.array(D['label_matrix'])[:, index(self.ix, self.ix, n)],
+                np.array(D['label_matrix'])[:, index(self.iy, self.iy, n)],
+                np.array(D['label_matrix'])[:, index(self.ix, self.iy, n)]
+            )
+        del D
+
+        with self.input()[1] as i:
+            D = i.query()
+        graphIndex = D['graphIndex']
+        X = np.array(D['data'])
+        del D
+
+        rev = [k for k, v in sorted(list(graphIndex.items()), key=lambda x: x[1])]
+        out = {'param': self.get_params()}
+
+        train_index = self.train_index
+        test_index = self.test_index
+
+        X_train = X[train_index][:, train_index]
+        X_test = X[test_index][:, train_index]
+        y_train = y[train_index]
+
+        clf = SVC(kernel='precomputed')
+        params = {
+            'C': self.C
+        }
+        scores = ['f1', 'precision', 'recall', 'accuracy']
+        clf = GridSearchCV(clf, params, scores, cv=self.cv.value, refit='f1')
+        clf.fit(X_train, y_train)
+        svc = LinearSVC(C=clf.best_params_['C'], dual=False)
+        svc.fit(X, y)
+
+        out['C'] = clf.best_params_['C']
+        out['result'] = clf.cv_results_
+        del out['result']['params']
+        for k in out['result'].keys():
+            out['result'][k] = out['result'][k].tolist()
+        out['coef'] = {}
+
+        coef = svc.dual_coef_
+        for i in range(coef.shape[1]):
+            if i in svc.support_:
+                out['coef'][rev[i]] = coef[0, i]
+
+        out['y'] = {}
+        for i in range(y_train.shape[0]):
+            if i in svc.support_:
+                y = y_train[i]
+                out['y'][rev[i]] = 1 if y > 0 else -1
+
+        out['intercept'] = svc.intercept_[0]
+        out['prediction'] = clf.predict(X_test).tolist()
+        out['prediction_insample'] = svc.predict(X_test).tolist()
+
+        with self.output() as o:
+            o.emit(out)
 
 
 class LinearSVMTask(Task):
@@ -169,6 +277,14 @@ class SVMSingleEvaluationTask(Task):
                             self.category, self.task_type
                         )
                     )
+                else:
+                    out.append(
+                        KernelSVMTask(
+                            i, j, self.CSet, self.h, self.D,
+                            self.train_index, self.test_index,
+                            self.category, self.task_type, self.kernel
+                        )
+                    )
         return out
 
     def __taskid__(self):
@@ -243,10 +359,12 @@ class SVMSingleEvaluationTask(Task):
                 yI = tools[y]
                 if xI not in svm_param:
                     svm_param[xI] = {}
-                if yI not in svm_param[x]:
+                if yI not in svm_param[xI]:
                     svm_param[xI][yI] = {}
                 svm_param[xI][yI]['coef'] = D['coef']
                 svm_param[xI][yI]['intercept'] = D['intercept']
+                if 'y' in D:
+                    svm_param[xI][yI]['y'] = D['y']
             cols.append(col)
             cols_insample.append(col_in)
 
