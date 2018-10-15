@@ -11,6 +11,7 @@ from .bag_tasks import BagFilterTask, BagGraphIndexTask
 from sklearn.model_selection import KFold
 from .rank_scores import select_score
 from sklearn.feature_extraction.text import TfidfTransformer
+import math
 
 
 def ranking(row, n):
@@ -112,7 +113,7 @@ class KernelSVMTask(Task):
         scores = ['f1', 'precision', 'recall', 'accuracy']
         clf = GridSearchCV(clf, params, scores, cv=self.cv.value, refit='f1')
         clf.fit(X_train, y_train)
-        svc = LinearSVC(C=clf.best_params_['C'], dual=False)
+        svc = SVC(kernel='precomputed', C=clf.best_params_['C'])
         svc.fit(X, y)
 
         out['C'] = clf.best_params_['C']
