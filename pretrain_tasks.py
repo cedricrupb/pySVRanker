@@ -34,6 +34,102 @@ def accumulate_label(ii, jj, ij):
     return y
 
 
+def is_better(X, Y):
+    return X['solve'] > Y['solve'] or\
+            (X['solve'] == Y['solve'] and X['time'] < Y['time'])
+
+
+class SVCompLabelMatrixTask(Task):
+    out_dir = Parameter('./gram/')
+    allowed = Parameter(None)
+
+    def __init__(self, h, D, category=None, task_type=None):
+        self.h = h
+        self.D = D
+        self.category = category
+        self.task_type = task_type
+
+    def require(self):
+        return [BagGraphIndexTask(self.h,
+                                  self.D,
+                                  self.category, self.task_type),
+                BagFilterTask(self.h, self.D,
+                              self.category, self.task_type)]
+
+    def __taskid__(self):
+        s = 'SVCompLabelMatrixTask_%d_%d' % (self.h, self.D)
+        if self.category is not None:
+            s += '_'+str(containerHash(self.category))
+        if self.task_type is not None:
+            s += '_'+str(self.task_type)
+        return s
+
+    def output(self):
+        path = self.out_dir.value + self.__taskid__() + '.json'
+        return CachedTarget(
+            LocalTarget(path, service=JsonService)
+        )
+
+    @staticmethod
+    def common_tools(bag):
+        F = len(bag)
+        C = {}
+        for B in bag.values():
+            for tool in B['label'].keys():
+                if tool not in C:
+                    C[tool] = 0
+                C[tool] += 1
+        tools = [k for k, v in C.items() if v == F]
+
+        for B in bag.values():
+            for d in [d for d in B['label'].keys() if d not in tools]:
+                del B['label'][d]
+
+        return tools
+
+    def run(self):
+        with self.input()[0] as i:
+            graphIndex = i.query()
+
+        with self.input()[1] as i:
+            bag = i.query()
+
+        self.tools = BagLabelMatrixTask.common_tools(bag)
+
+        if self.allowed.value is not None:
+            self.tools = [t for t in self.tools if t in self.allowed.values]
+
+        n = len(self.tools)
+        label_matrix = np.zeros((graphIndex['counter'], int(0.5*n*(n+1))))
+        rankings = np.array([None]*graphIndex['counter'])
+        tool_index = {t: i for i, t in enumerate(self.tools)}
+
+        for k, B in bag.items():
+            if k not in graphIndex:
+                continue
+            index_g = graphIndex[k]
+            for tool_x, label_x in B['label'].items():
+                index_x = tool_index[tool_x]
+
+                for tool_y, label_y in B['label'].items():
+                    index_y = tool_index[tool_y]
+                    if index_y > index_x:
+                        label_matrix[index_g, index(index_x, index_y, n) - n] =\
+                            1 if is_better(label_x, label_y) else 0
+
+            rank = ranking(label_matrix[index_g, :], n)
+            rankings[index_g] = [self.tools[i] for i in rank]
+
+        with self.output() as o:
+            o.emit(
+                {
+                    'tools': self.tools,
+                    'label_matrix': label_matrix.tolist(),
+                    'rankings': rankings.tolist()
+                }
+            )
+
+
 class KernelSVMTask(Task):
     out_dir = Parameter('./svm/')
     cv = Parameter(10)
@@ -54,8 +150,8 @@ class KernelSVMTask(Task):
         self.kernel = kernel
 
     def require(self):
-        return [BagLabelMatrixTask(self.h, self.D,
-                                   self.category, self.task_type),
+        return [SVCompLabelMatrixTask(self.h, self.D,
+                                      self.category, self.task_type),
                 BagCalculateGramTask(self.h, self.D,
                                      category=self.category,
                                      task_type=self.task_type,
@@ -82,12 +178,7 @@ class KernelSVMTask(Task):
             D = i.query()
 
         n = len(D['tools'])
-        y =\
-            accumulate_label(
-                np.array(D['label_matrix'])[:, index(self.ix, self.ix, n)],
-                np.array(D['label_matrix'])[:, index(self.iy, self.iy, n)],
-                np.array(D['label_matrix'])[:, index(self.ix, self.iy, n)]
-            )
+        y = np.array(D['label_matrix'])[:, index(self.ix, self.iy, n) - n]
         del D
 
         with self.input()[1] as i:
@@ -160,8 +251,8 @@ class LinearSVMTask(Task):
         self.task_type = task_type
 
     def require(self):
-        return [BagLabelMatrixTask(self.h, self.D,
-                                   self.category, self.task_type),
+        return [SVCompLabelMatrixTask(self.h, self.D,
+                                      self.category, self.task_type),
                 BagFeatureTask(self.h, self.D,
                                category=self.category,
                                task_type=self.task_type)]
@@ -187,12 +278,7 @@ class LinearSVMTask(Task):
             D = i.query()
 
         n = len(D['tools'])
-        y =\
-            accumulate_label(
-                np.array(D['label_matrix'])[:, index(self.ix, self.ix, n)],
-                np.array(D['label_matrix'])[:, index(self.iy, self.iy, n)],
-                np.array(D['label_matrix'])[:, index(self.ix, self.iy, n)]
-            )
+        y = np.array(D['label_matrix'])[:, index(self.ix, self.iy, n) - n]
         del D
 
         with self.input()[1] as i:
@@ -265,8 +351,8 @@ class SVMSingleEvaluationTask(Task):
                                  self.category, self.task_type),
                BagFilterTask(self.h, self.D,
                              self.category, self.task_type),
-               BagLabelMatrixTask(self.h, self.D,
-                                  self.category, self.task_type)]
+               SVCompLabelMatrixTask(self.h, self.D,
+                                     self.category, self.task_type)]
 
         for i in range(self.tool_count):
             for j in range(i+1, self.tool_count):
