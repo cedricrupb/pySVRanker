@@ -203,7 +203,7 @@ class KernelSVMTask(Task):
         }
         scores = ['f1', 'precision', 'recall', 'accuracy']
         clf = GridSearchCV(clf, params, scores, cv=self.cv.value, refit='f1')
-        clf.fit(X_train, y_train)
+        clf.fit(X, y)
         svc = SVC(kernel='precomputed', C=clf.best_params_['C'])
         svc.fit(X, y)
 
