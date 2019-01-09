@@ -1,6 +1,6 @@
 from pyTasks.task import Task, Parameter
 from pyTasks.task import Optional, containerHash
-from pyTasks.target import CachedTarget, LocalTarget
+from pyTasks.target import CachedTarget, LocalTarget, FileTarget
 from pyTasks.target import JsonService
 from .pca_tasks import BagCalculateGramTask
 from .bag_tasks import BagLabelMatrixTask, BagFeatureTask, index, reverse_index
@@ -12,6 +12,23 @@ from sklearn.model_selection import KFold
 from .rank_scores import select_score
 from sklearn.feature_extraction.text import TfidfTransformer
 import math
+from os.path import abspath, join, isdir, isfile
+import subprocess
+from subprocess import PIPE
+import re
+
+
+def partial_ranking(row, n):
+    N = np.zeros(n)
+
+    for i in range(n):
+        for j in range(i+1, n):
+            if row[index(i, j, n) - n] == 0:
+                continue
+            better_i = row[index(i, j, n) - n] == 1
+            N[i if better_i else j] += 1
+
+    return N.argsort()[::-1]
 
 
 def ranking(row, n):
@@ -79,7 +96,7 @@ class SVCompLabelMatrixTask(Task):
                 if tool not in C:
                     C[tool] = 0
                 C[tool] += 1
-        tools = [k for k, v in C.items() if v == F]
+        tools = [k for k, v in C.items()]  # if v == F]
 
         for B in bag.values():
             for d in [d for d in B['label'].keys() if d not in tools]:
@@ -108,16 +125,36 @@ class SVCompLabelMatrixTask(Task):
             if k not in graphIndex:
                 continue
             index_g = graphIndex[k]
-            for tool_x, label_x in B['label'].items():
+            for tool_x in self.tools:
                 index_x = tool_index[tool_x]
+                label_x = None
 
-                for tool_y, label_y in B['label'].items():
+                if tool_x in B['label']:
+                    label_x = B['label'][tool_x]
+
+                for tool_y in self.tools:
                     index_y = tool_index[tool_y]
-                    if index_y > index_x:
-                        label_matrix[index_g, index(index_x, index_y, n) - n] =\
-                            1 if is_better(label_x, label_y) else 0
 
-            rank = ranking(label_matrix[index_g, :], n)
+                    label_x = None
+
+                    if tool_y in B['label']:
+                        label_y = B['label'][tool_y]
+
+                    if index_y > index_x:
+                        val = 0
+
+                        if label_x is None:
+                            if label_y is not None:
+                                val = -1
+                        else:
+                            if label_y is None:
+                                val = 1
+                            else:
+                                val = 1 if is_better(label_x, label_y) else -1
+
+                        label_matrix[index_g, index(index_x, index_y, n) - n] = val
+
+            rank = partial_ranking(label_matrix[index_g, :], n)
             rankings[index_g] = [self.tools[i] for i in rank]
 
         with self.output() as o:
@@ -128,6 +165,60 @@ class SVCompLabelMatrixTask(Task):
                     'rankings': rankings.tolist()
                 }
             )
+
+
+class SVGraphTask(Task):
+    out_dir = Parameter("./dfs")
+    cpaChecker = Parameter("")
+    bench_path = Parameter("")
+    localize = Parameter(None)
+
+    def init(self, task):
+        self.task = task
+
+    def _localize(self, path):
+        if self.localize.value is not None:
+            return path.replace(self.localize.value[0],
+                                self.localize.value[1])
+        return path
+
+    def require(self):
+        return None
+
+    def __taskid__(self):
+        tid = self.task
+        tid = tid.replace("/", "_")
+        tid = tid.replace("\\.", "_")
+        return tid
+
+    def output(self):
+        return FileTarget(
+            "%s/%s.dfs" % (self.out_dir.value, self.__taskid__())
+        )
+
+    def run(self):
+        out_path = self.output().path
+
+        path_to_source = self._localize(abspath("%s/%s" % (self.bench_path.value, self.task)))
+
+        __path_to_cpachecker__ = self.cpaChecker.value
+        cpash_path = join(__path_to_cpachecker__, 'scripts', 'cpa.sh')
+
+        if not isdir(__path_to_cpachecker__):
+            raise ValueError('CPAChecker directory not found')
+        if not (isfile(path_to_source) and (path_to_source.endswith('.i') or path_to_source.endswith('.c'))):
+            raise ValueError('path_to_source is no valid filepath. [%s]' % path_to_source)
+
+        proc = subprocess.run([cpash_path,
+                               '-graphgen',
+                               '-heap', self.heap.value,
+                               path_to_source,
+                               '-setprop', "graphGen.output=%s" % out_path
+                               ],
+                              check=False, stdout=PIPE, stderr=PIPE)
+        match_vresult = re.search(r'Verification\sresult:\s([A-Z]+)\.', str(proc.stdout))
+        if match_vresult is None:
+            raise ValueError('Invalid output of CPAChecker.')
 
 
 class KernelSVMTask(Task):
@@ -193,9 +284,22 @@ class KernelSVMTask(Task):
         train_index = self.train_index
         test_index = self.test_index
 
+        nnz = np.nonzero(y)[0]
+        y = y[nnz]
+        y[np.where(y == -1)] = 0
+        X = X[nnz, :][:, nnz]
+
         X_train = X[train_index][:, train_index]
         X_test = X[test_index][:, train_index]
         y_train = y[train_index]
+
+        X = np.nan_to_num(X)
+
+        if np.isnan(X).any():
+            raise Exception("Fail for X")
+
+        if np.isnan(y).any():
+            raise Exception("Fail for y in %d, %d" % (self.ix, self.iy))
 
         clf = SVC(kernel='precomputed')
         params = {
@@ -216,18 +320,20 @@ class KernelSVMTask(Task):
 
         coef = svc.dual_coef_
         for i in range(coef.shape[1]):
-            if i in svc.support_:
-                out['coef'][rev[i]] = coef[0, i]
+            ix = svc.support_[i]
+            jx = nnz[ix]
+            out['coef'][rev[jx]] = coef[0, i]
 
         out['y'] = {}
         for i in range(y_train.shape[0]):
             if i in svc.support_:
-                y = y_train[i]
-                out['y'][rev[i]] = 1 if y > 0 else -1
+                j = nnz[i]
+                y = y[i]
+                out['y'][rev[j]] = 1 if y > 0 else -1
 
         out['intercept'] = svc.intercept_[0]
-        out['prediction'] = clf.predict(X_test).tolist()
-        out['prediction_insample'] = svc.predict(X_test).tolist()
+        out['prediction'] = clf.predict(X).tolist()
+        out['prediction_insample'] = svc.predict(X).tolist()
 
         with self.output() as o:
             o.emit(out)
@@ -423,14 +529,14 @@ class SVMSingleEvaluationTask(Task):
                     list(graphIndex.items()), key=lambda x: x[1]
                     )]
 
-        graphs = [graphs[i][0] for i in self.test_index]
-
         with self.input()[2] as i:
             D = i.query()
         y = D['rankings']
         tools = D['tools']
 
-        rank_expect = [y[i] for i in self.test_index]
+        graphs = [graphs[i][0] for i in range(len(y))]
+
+        rank_expect = y
 
         svm_param = {}
 
@@ -458,9 +564,9 @@ class SVMSingleEvaluationTask(Task):
         M = np.column_stack(cols)
         M_in = np.column_stack(cols_insample)
 
-        rank_pred = [ranking(M[i, :], self.tool_count)
+        rank_pred = [partial_ranking(M[i, :], self.tool_count)
                      for i in range(M.shape[0])]
-        rank_pred_in = [ranking(M[i, :], self.tool_count)
+        rank_pred_in = [partial_ranking(M[i, :], self.tool_count)
                         for i in range(M_in.shape[0])]
 
         for i in range(len(rank_pred)):
@@ -482,11 +588,11 @@ class SVMSingleEvaluationTask(Task):
                 if k not in empirical:
                     empirical[k] = 0.0
                 s = score(pred, expected, g)
-                empirical[k] += s / len(self.test_index)
+                empirical[k] += s / len(y)
                 if k not in empirical_in:
                     empirical_in[k] = 0.0
                 s = score(pred_in, expected, g)
-                empirical_in[k] += s / len(self.test_index)
+                empirical_in[k] += s / len(y)
 
         with self.output() as emitter:
             emitter.emit(

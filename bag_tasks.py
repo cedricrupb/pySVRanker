@@ -26,10 +26,16 @@ from scipy.sparse import issparse
 
 
 def is_correct(label):
-    return label['solve'] == 'correct'
+    return label['solve'] == 1
 
 
-def is_faster(labelA, labelB):
+def is_false(label):
+    return label['solve'] == -1
+
+
+def is_faster(labelA, labelB, major=False):
+    if labelB['time'] >= 900:
+        return labelA['time'] < 900 or major
     return labelA['time'] < labelB['time']
 
 
@@ -115,21 +121,48 @@ def pareto_front(knownSet, entity, key):
     return front
 
 
+def is_better(ci, cj, fij):
+    return ci > cj or (ci == cj and fij == 1)
+
+
+def borda_major(bag):
+    votes = {}
+    for k, B in bag.items():
+        for tool_x, label_x in B['label'].items():
+            for tool_y, label_y in B['label'].items():
+                if tool_x < tool_y:
+                    if tool_x not in votes:
+                        votes[tool_x] = 0
+                    if tool_y not in votes:
+                        votes[tool_y] = 0
+                    ci =\
+                        1 if is_correct(label_x) else \
+                        (-1 if is_false(label_x) else 0)
+
+                    cj =\
+                        1 if is_correct(label_y) else \
+                        (-1 if is_false(label_y) else 0)
+
+                    fij = 1 if is_faster(label_x, label_y) else 0
+                    fij = -1 if fij == 0 and is_faster(label_x, label_y) else fij
+                    if max([ci, cj, fij]) == min([ci, cj, fij]) and fij == 0:
+                        continue
+                    votes[tool_x if is_better(ci, cj, fij) else tool_y] += 1
+
+    votes = [t[0] for t in sorted(list(votes.items()), key=lambda X: X[1], reverse=True)]
+    return {k: i for i, k in enumerate(votes)}
+
+
 def ranking(row, n):
     N = np.zeros(n)
 
     for i in range(n):
-        correct_i = row[index(i, i, n)] == 1
+        correct_i = row[index(i, i, n)]
         for j in range(n):
             if i < j:
-                correct_j = row[index(j, j, n)] == 1
-                faster_i = row[index(i, j, n)] == 1
-                if correct_i and not correct_j:
-                    N[i] += 1
-                elif correct_j and not correct_i:
-                    N[j] += 1
-                else:
-                    N[i if faster_i else j] += 1
+                correct_j = row[index(j, j, n)]
+                faster_i = row[index(i, j, n)]
+                N[i if is_better(correct_i, correct_j, faster_i) else j] += 1
 
     return N.argsort()[::-1]
 
@@ -204,11 +237,12 @@ class BagFilterTask(Task):
     out_dir = Parameter('./gram/')
     svcomp = Parameter('svcomp18')
 
-    def __init__(self, h, D, category=None, task_type=None):
+    def __init__(self, h, D, category=None, task_type=None, by_id=False):
         self.h = h
         self.D = D
         self.category = category
         self.task_type = task_type
+        self.by_id = by_id
 
     def _init_filter(self):
         categories = set(enumerateable(self.category))
@@ -217,7 +251,7 @@ class BagFilterTask(Task):
 
         def filter(category, property):
             print(property)
-            if prop is not None and prop is not property:
+            if prop is not None and prop not in property:
                 return False
 
             if self.category is None:
@@ -228,7 +262,7 @@ class BagFilterTask(Task):
 
     def detect_property(self, path):
         try:
-            return self._svcomp._extract_property_type(path)
+            return self._svcomp.set_of_properties(path)
         except MissingPropertyTypeException:
             print('Problem with property. Ignore')
             return None
@@ -264,7 +298,10 @@ class BagFilterTask(Task):
 
         D = set([])
         for name, V in B.items():
-            f = V['file']
+            if self.by_id:
+                f = name
+            else:
+                f = V['file']
             if not self._filter(
                 self.detect_category(f),
                 self.detect_property(f)
@@ -373,6 +410,7 @@ class BagLabelMatrixTask(Task):
             bag = i.query()
 
         self.tools = BagLabelMatrixTask.common_tools(bag)
+        self.major = borda_major(bag)
 
         if self.allowed.value is not None:
             self.tools = [t for t in self.tools if t in self.allowed.values]
@@ -389,13 +427,17 @@ class BagLabelMatrixTask(Task):
             for tool_x, label_x in B['label'].items():
                 index_x = tool_index[tool_x]
                 label_matrix[index_g, index(index_x, index_x, n)] =\
-                    1 if is_correct(label_x) else 0
+                    1 if is_correct(label_x) else \
+                    (-1 if is_false(label_x) else 0)
 
                 for tool_y, label_y in B['label'].items():
                     index_y = tool_index[tool_y]
                     if index_y > index_x:
+                        major = self.major[tool_x] < self.major[tool_y]
+                        v = 1 if is_faster(label_x, label_y, major) else 0
+                        v = -1 if v == 0 and is_faster(label_x, label_y, major) else v
                         label_matrix[index_g, index(index_x, index_y, n)] =\
-                            1 if is_faster(label_x, label_y) else 0
+                            v
             rank = ranking(label_matrix[index_g, :], n)
             rankings[index_g] = [self.tools[i] for i in rank]
 
@@ -1270,7 +1312,7 @@ class BagMDSCategoryTask(Task):
                 nnz += 1
 
             plt.figure(1)
-            plt.suptitle('MDS of Category %s (h: %s, D: %s) [%s points] (Stress: %2.2f)' %
+            plt.subtitle('MDS of Category %s (h: %s, D: %s) [%s points] (Stress: %2.2f)' %
                          (k, str(self.h), str(self.D), str(nnz), stress))
 
             for color, i, t in zip(colors, range(len(aName)), aName):

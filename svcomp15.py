@@ -163,6 +163,35 @@ def _extract_expected_status(vtask_path):
     raise MissingExpectedStatusException('Cannot extract expected status from filename / regex failed (wrong naming?)')
 
 
+def is_reach(vtask_path):
+    return 'unreach' in vtask_path
+
+
+def is_termination(vtask_path):
+    return 'termination' in vtask_path
+
+
+def is_overflow(vtask_path):
+    return 'overflow' in vtask_path
+
+
+def is_memory(vtask_path):
+    return 'valid' in vtask_path
+
+
+def set_of_properties(vtask_path):
+    props = set([])
+    if is_reach(vtask_path):
+        props.add(PropertyType.unreachability)
+    if is_termination(vtask_path):
+        props.add(PropertyType.termination)
+    if is_memory(vtask_path):
+        props.add(PropertyType.memory_safety)
+    if is_overflow(vtask_path):
+        props.add(PropertyType.overflow)
+    return props
+
+
 def _extract_property_type(vtask_path):
     """
     Extracts the property type associated with a verification task.

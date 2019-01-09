@@ -14,6 +14,7 @@ import math
 from .rank_scores import select_score
 from .bag_tasks import BagLabelMatrixTask, index, reverse_index
 from .classification_tasks import MajorityOrSVC
+from sklearn.model_selection import GridSearchCV
 
 
 def divide(A, B):
@@ -70,8 +71,12 @@ def accumulate_label(ii, jj, ij):
     y = np.zeros(ii.shape)
 
     for i in range(len(ii)):
-        y[i] = ii[i]*(1 - jj[i]) + (ii[i]*jj[i] + (1-ii[i])*(1-jj[i])) * ij[i]
-
+        if ii[i] > jj[i]:
+            y[i] = 1
+        elif ii[i] == jj[i]:
+            y[i] = ij[i]
+        else:
+            y[i] = 0
     return y
 
 
@@ -286,12 +291,116 @@ class CzechSingleOptimizationTask(Task):
 
         X_train, X_test = X[train_index][:, train_index], X[test_index][:, train_index]
         y_train = y[train_index]
+        y_test = y[test_index]
 
         clf = MajorityOrSVC(C=C)
 
         start_time = time.time()
         clf.fit(X_train, y_train)
         out['train_time'] = time.time() - start_time
+
+        if hasattr(clf, 'support_'):
+            self.support_ = rev_gI[clf.support_]
+
+        start_time = time.time()
+        out['prediction'] = clf.predict(X_test).tolist()
+        out['test_accuracy'] = float(clf.score(X_test, y_test))
+        out['test_time'] = (time.time() - start_time)/X_test.shape[0]
+
+        with self.output() as o:
+            o.emit(out)
+
+
+class CzechCVOptimizationTask(Task):
+    out_dir = Parameter('./eval/')
+
+    def __init__(self, ix, iy, CSet, h, D, score,
+                 train_index, test_index,
+                 category=None, task_type=None, kernel='linear'):
+        self.ix = ix
+        self.iy = iy
+        self.CSet = CSet
+        self.h = h
+        self.D = D
+        self.score = score
+        self.train_index = train_index
+        self.test_index = test_index
+        self.category = category
+        self.task_type = task_type
+        self.kernel = kernel
+        self.support_ = []
+
+    def require(self):
+        out = [BagLabelMatrixTask(self.h, self.D,
+                                  self.category, self.task_type),
+               BagCalculateGramTask(self.h, self.D,
+                                    category=self.category,
+                                    task_type=self.task_type,
+                                    kernel=self.kernel)]
+        return out
+
+    def __taskid__(self):
+        return 'CzechCVOptimizationTask_%s' % (str(
+                                                      containerHash(
+                                                                    list(
+                                                                         self.get_params().items()
+                                                                        )
+                                                                    )
+                                                       )
+                                                  )
+
+    def __stats__(self):
+        return {'support_vector': self.support_.tolist()}
+
+    def output(self):
+        path = self.out_dir.value + self.__taskid__() + '.json'
+        return CachedTarget(
+            LocalTarget(path, service=JsonService)
+        )
+
+    def run(self):
+
+        with self.input()[0] as i:
+            D = i.query()
+
+        n = len(D['tools'])
+        y =\
+            accumulate_label(
+                np.array(D['label_matrix'])[:, index(self.ix, self.ix, n)],
+                np.array(D['label_matrix'])[:, index(self.iy, self.iy, n)],
+                np.array(D['label_matrix'])[:, index(self.ix, self.iy, n)]
+            )
+        del D
+
+        with self.input()[1] as i:
+            D = i.query()
+        graphIndex = D['graphIndex']
+        rev_gI = np.array([x[0] for x in sorted(graphIndex.items(), key=lambda x: x[1])])
+        X = np.array(D['data'])
+        del D
+
+        out = {'param': self.get_params()}
+
+        train_index = self.train_index
+        test_index = self.test_index
+
+        X_train, X_test = X[train_index][:, train_index], X[test_index][:, train_index]
+        y_train = y[train_index]
+
+        clf = MajorityOrSVC()
+        clf = GridSearchCV(
+            clf, {'C': self.CSet}, scoring=self.score
+        )
+
+        clf.fit(X_train, y_train)
+        out['train_time'] = float(np.mean(clf.cv_results_['mean_fit_time']))
+        res = clf.cv_results_
+        bi = clf.best_index_
+
+        out['C'] = int(clf.best_params_['C'])
+        out['evaluation'] = {
+            'f1': float(res['mean_test_f1'][bi])
+        }
 
         if hasattr(clf, 'support_'):
             self.support_ = rev_gI[clf.support_]
@@ -306,6 +415,7 @@ class CzechSingleOptimizationTask(Task):
 
 class CzechSingleEvaluationTask(Task):
     out_dir = Parameter('./eval/')
+    grid_opt = Parameter(True)
 
     def __init__(self, tool_count, CSet, h, D, sub_score,
                  scores,
@@ -334,6 +444,11 @@ class CzechSingleEvaluationTask(Task):
         for i in range(self.tool_count):
             for j in range(i+1, self.tool_count):
                 out.append(
+                    CzechCVOptimizationTask(
+                        i, j, self.CSet, self.h, self.D,
+                        self.sub_score, self.train_index, self.test_index,
+                        self.category, self.task_type, self.kernel
+                    ) if self.grid_opt.value else
                     CzechSingleOptimizationTask(
                         i, j, self.CSet, self.h, self.D,
                         self.sub_score, self.train_index, self.test_index,
@@ -428,9 +543,11 @@ class CzechSingleEvaluationTask(Task):
 
         empirical = {}
         raw_empircal = {}
+        pred_comp = []
         for i, pred in enumerate(rank_pred):
             expected = rank_expect[i]
             g = graphs[i]
+            pred_comp.append("P: %s, E: %s\n" % (str(pred), str(expected)))
             for k, score in scores.items():
                 if k not in empirical:
                     empirical[k] = 0.0
@@ -446,7 +563,8 @@ class CzechSingleEvaluationTask(Task):
                     'C': C_param,
                     'result': empirical,
                     'raw_results': raw_empircal,
-                    'evaluation': eval_param
+                    'evaluation': eval_param,
+                    'pred': pred_comp
                 }
             )
 

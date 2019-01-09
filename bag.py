@@ -11,7 +11,7 @@ from .svcomp15 import MissingPropertyTypeException
 def detect_task_type(svcomp, path):
     svcomp = select_svcomp(svcomp)
     try:
-        return svcomp._extract_property_type(path)
+        return svcomp.set_of_properties(path)
     except MissingPropertyTypeException:
         print('Problem with property. Ignore')
         return None
@@ -109,7 +109,7 @@ class ProgramBags:
             categories[k] = []
             for v in V:
                 task = self.bags[v]
-                if task['task_type'] == task_type:
+                if task_type in task['task_type']:
                     categories[k].append(v)
                     bags[v] = task
         if len(bags) == 0:
