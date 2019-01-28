@@ -4,6 +4,7 @@ from pyTasks.target import CachedTarget, LocalTarget, FileTarget
 from pyTasks.target import JsonService
 from .pca_tasks import BagCalculateGramTask
 from .bag_tasks import BagLabelMatrixTask, BagFeatureTask, index, reverse_index
+from .czech_tasks import accumulate_label
 import numpy as np
 from sklearn.model_selection import GridSearchCV
 from sklearn.svm import LinearSVC, SVC
@@ -16,6 +17,7 @@ from os.path import abspath, join, isdir, isfile
 import subprocess
 from subprocess import PIPE
 import re
+from sklearn.base import clone
 
 
 def partial_ranking(row, n):
@@ -42,13 +44,17 @@ def ranking(row, n):
     return N.argsort()[::-1]
 
 
-def accumulate_label(ii, jj, ij):
+def d_accumulate_label(ii, jj, ij):
     y = np.zeros(ii.shape)
 
     for i in range(len(ii)):
         y[i] = ii[i]*(1 - jj[i]) + (ii[i]*jj[i] + (1-ii[i])*(1-jj[i])) * ij[i]
 
     return y
+
+
+def is_valid(X):
+    return X['time'] < 900
 
 
 def is_better(X, Y):
@@ -129,15 +135,15 @@ class SVCompLabelMatrixTask(Task):
                 index_x = tool_index[tool_x]
                 label_x = None
 
-                if tool_x in B['label']:
+                if tool_x in B['label'] and is_valid(B['label'][tool_x]):
                     label_x = B['label'][tool_x]
 
                 for tool_y in self.tools:
                     index_y = tool_index[tool_y]
 
-                    label_x = None
+                    label_y = None
 
-                    if tool_y in B['label']:
+                    if tool_y in B['label'] and is_valid(B['label'][tool_y]):
                         label_y = B['label'][tool_y]
 
                     if index_y > index_x:
@@ -241,8 +247,8 @@ class KernelSVMTask(Task):
         self.kernel = kernel
 
     def require(self):
-        return [SVCompLabelMatrixTask(self.h, self.D,
-                                      self.category, self.task_type),
+        return [BagLabelMatrixTask(self.h, self.D,
+                                   self.category, self.task_type),
                 BagCalculateGramTask(self.h, self.D,
                                      category=self.category,
                                      task_type=self.task_type,
@@ -268,8 +274,14 @@ class KernelSVMTask(Task):
         with self.input()[0] as i:
             D = i.query()
 
+        tools = D['tools']
         n = len(D['tools'])
-        y = np.array(D['label_matrix'])[:, index(self.ix, self.iy, n) - n]
+        y =\
+            accumulate_label(
+                np.array(D['label_matrix'])[:, index(self.ix, self.ix, n)],
+                np.array(D['label_matrix'])[:, index(self.iy, self.iy, n)],
+                np.array(D['label_matrix'])[:, index(self.ix, self.iy, n)]
+            )
         del D
 
         with self.input()[1] as i:
@@ -283,11 +295,6 @@ class KernelSVMTask(Task):
 
         train_index = self.train_index
         test_index = self.test_index
-
-        nnz = np.nonzero(y)[0]
-        y = y[nnz]
-        y[np.where(y == -1)] = 0
-        X = X[nnz, :][:, nnz]
 
         X_train = X[train_index][:, train_index]
         X_test = X[test_index][:, train_index]
@@ -321,19 +328,23 @@ class KernelSVMTask(Task):
         coef = svc.dual_coef_
         for i in range(coef.shape[1]):
             ix = svc.support_[i]
-            jx = nnz[ix]
+            jx = ix
             out['coef'][rev[jx]] = coef[0, i]
 
         out['y'] = {}
         for i in range(y_train.shape[0]):
             if i in svc.support_:
-                j = nnz[i]
-                y = y[i]
-                out['y'][rev[j]] = 1 if y > 0 else -1
+                j = i
+                _y = y[i]
+                out['y'][rev[j]] = 1 if _y > 0 else -1
 
         out['intercept'] = svc.intercept_[0]
         out['prediction'] = clf.predict(X).tolist()
         out['prediction_insample'] = svc.predict(X).tolist()
+
+        all_predict = svc.predict(X).tolist()
+        all_predict = [tools[self.ix if p == 1 else self.iy] for p in all_predict]
+        out['prediction_all'] = all_predict
 
         with self.output() as o:
             o.emit(out)
@@ -457,8 +468,8 @@ class SVMSingleEvaluationTask(Task):
                                  self.category, self.task_type),
                BagFilterTask(self.h, self.D,
                              self.category, self.task_type),
-               SVCompLabelMatrixTask(self.h, self.D,
-                                     self.category, self.task_type)]
+               BagLabelMatrixTask(self.h, self.D,
+                                  self.category, self.task_type)]
 
         for i in range(self.tool_count):
             for j in range(i+1, self.tool_count):
@@ -703,3 +714,95 @@ class CVSVMSingleEvalutionTask(Task):
                         'results_insample': results_in
                     }
                 )
+
+
+def cross_predict(clf, X, y, cv=10):
+    scores = {}
+    loo = KFold(cv, shuffle=True)
+    cross_index = list(range(X.shape[0]))
+    prediction = np.zeros(y.shape)
+    for train_index, test_index in loo.split(cross_index):
+        X_train, X_test = X[train_index][:, train_index], X[test_index][:, train_index]
+        y_train, y_test = y[train_index], y[test_index]
+
+        model = clone(clf)
+
+        model.fit(X_train, y_train)
+        pred = model.predict(X_test)
+
+        prediction[test_index] = pred
+
+    return prediction
+
+
+class KernelSVMTimeTask(Task):
+    out_dir = Parameter('./svm/')
+    cv = Parameter(10)
+
+    def __init__(self, ix, iy, C, h, D,
+                 category=None, task_type=None,
+                 kernel='linear'):
+        self.ix = ix
+        self.iy = iy
+        self.C = C
+        self.h = h
+        self.D = D
+        self.category = category
+        self.task_type = task_type
+        self.kernel = kernel
+
+    def require(self):
+        return [BagLabelMatrixTask(self.h, self.D,
+                                   self.category, self.task_type),
+                BagCalculateGramTask(self.h, self.D,
+                                     category=self.category,
+                                     task_type=self.task_type,
+                                     kernel=self.kernel)]
+
+    def __taskid__(self):
+        return 'KernelSVMTimeTask_%s' % (str(
+                                                      containerHash(
+                                                                    list(
+                                                                         self.get_params().items()
+                                                                        )
+                                                                    )
+                                                       )
+                                                  )
+
+    def output(self):
+        path = self.out_dir.value + self.__taskid__() + '.json'
+        return CachedTarget(
+            LocalTarget(path, service=JsonService)
+        )
+
+    def run(self):
+        with self.input()[0] as i:
+            D = i.query()
+
+        tools = D['tools']
+        n = len(D['tools'])
+        y =\
+            accumulate_label(
+                np.array(D['label_matrix'])[:, index(self.ix, self.ix, n)],
+                np.array(D['label_matrix'])[:, index(self.iy, self.iy, n)],
+                np.array(D['label_matrix'])[:, index(self.ix, self.iy, n)]
+            )
+        del D
+
+        with self.input()[1] as i:
+            D = i.query()
+        graphIndex = D['graphIndex']
+        X = np.array(D['data'])
+        del D
+
+        rev = [k for k, v in sorted(list(graphIndex.items()), key=lambda x: x[1])]
+        out = {'param': self.get_params()}
+
+        clf = SVC(C=self.C, kernel='precomputed')
+
+        all_predict = cross_predict(clf, X, y, cv=self.cv.value).tolist()
+        all_predict = [tools[self.ix if p == 1 else self.iy] for p in all_predict]
+        out['prediction'] = all_predict
+
+        with self.output() as o:
+            o.emit(out)
