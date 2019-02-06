@@ -95,3 +95,16 @@ experiments.
 The task framework used for experiments requires a working directory.
 Therefore we have to create a directory (e.g. work_dir/) and move our
 training inside (e.g. work_dir/training/).
+To run our experiment, we can use:
+```cmdline
+scripts/run_experiments.py -c <CONFIG_FILE> -p <PREFIX> -o <EXECUTION_GRAPH>
+```
+Howerver, we need to specify experiments parameter before we can start
+our experiments. Firstly, we have to create a config file. An example can be found
+in the scripts/ folder. It is important to set the pattern config under
+"BagLoadingTask". Other config options can remain. More importantly, you can modify
+some running options (e.g. AST depth) in run_experiments.py itself.
+PREFIX defines the working directory. In our example, this is work_dir.
+The execution graph is there to safe partial process. It is important to
+notice that the execution graph is saved if exit the code. Therefore, you have
+to delete the old graph or define another file path if you start new experiments.
