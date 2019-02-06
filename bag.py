@@ -1,3 +1,4 @@
+"""General package to handle programs as bags representation."""
 import json
 import re
 import numpy as np
@@ -9,6 +10,7 @@ from .svcomp15 import MissingPropertyTypeException
 
 
 def detect_task_type(svcomp, path):
+    """Detect a task type found in program path."""
     svcomp = select_svcomp(svcomp)
     try:
         return svcomp.set_of_properties(path)
@@ -18,6 +20,7 @@ def detect_task_type(svcomp, path):
 
 
 def detect_category(path):
+    """Detect a category found in program path."""
     reg = re.compile('sv-benchmarks\/c\/[^\/]+\/')
     o = reg.search(path)
     if o is None:
@@ -26,6 +29,12 @@ def detect_category(path):
 
 
 def enumerateable(obj):
+    """
+    Check if object is an enumerateable.
+
+    If yes: return the object.
+    If no: Create an enumerateable containing only the object
+    """
     if obj is None:
         return []
     if isinstance(obj, str):
@@ -38,6 +47,12 @@ def enumerateable(obj):
 
 
 def indexMap(key, mapping):
+    """
+    Return an existing or newly generated index.
+
+    Caution: A fake entry "counter" is generated for storing the last id.
+    This could lead to problems if this is not handled later on.
+    """
     counter = 0
     if 'counter' in mapping:
         counter = mapping['counter']
@@ -50,6 +65,7 @@ def indexMap(key, mapping):
 
 
 def read_bag(path):
+    """Read a bag representation from Json."""
     with open(path, 'r') as o:
         jsonBag = json.load(o)
 
@@ -57,6 +73,7 @@ def read_bag(path):
 
 
 def normalize_gram(GR):
+    """Normalize a given gram matrix"""
 
     D = diags(1/np.sqrt(GR.diagonal()))
 
@@ -64,9 +81,19 @@ def normalize_gram(GR):
 
 
 class ProgramBags:
+    """A general class to store and handle programs as bags."""
 
     def __init__(self, content={}, init_bags={}, init_categories={},
-                 svcomp='svcomp15'):
+                 svcomp='svcomp18'):
+        """
+        Init bags.
+
+        content: The bag representation as dictionary.
+                 May be parsed from a json file.
+        init_bags: Some initial prepared bags.
+        init_categories: Some initial prepared categories.
+        svcomp: The SV-Comp for parsing categories and task_types
+        """
         self.bags = init_bags
         self.categories = init_categories
         self.graphIndex = {}
@@ -91,9 +118,15 @@ class ProgramBags:
             indexMap(k, self.graphIndex)
 
     def get_categories(self):
+        """Get a list of all categories."""
         return list(self.categories.keys())
 
     def get_category(self, category):
+        """
+        Create a new bag only containing tasks of a given category.
+
+        category: One category or a list of categories.
+        """
         categories = {k: self.categories[k] for k in enumerateable(category)}
         flat = []
         for k, v in categories.items():
@@ -103,6 +136,7 @@ class ProgramBags:
                            svcomp=self.svcomp)
 
     def get_task_type(self, task_type):
+        """Create a new bag only containing tasks of a given task_type."""
         categories = {}
         bags = {}
         for k, V in self.categories.items():
@@ -118,8 +152,13 @@ class ProgramBags:
         return ProgramBags(init_bags=bags, init_categories=categories,
                            svcomp=self.svcomp)
 
-    def features(self, graphIndex=None):
+    def features(self):
+        """
+        Return a sparse array representing a feature matrix.
 
+        (r, c) is the frequency of a label c in a task r.
+        Return format: Sparse CSR Matrix
+        """
         row = []
         column = []
         data = []
@@ -150,6 +189,7 @@ class ProgramBags:
 
     @staticmethod
     def pairwise_index(D1, D2):
+        """Index features only between two tasks."""
         index = {}
         O1 = {}
 
@@ -175,12 +215,14 @@ class ProgramBags:
 
     @staticmethod
     def pairwise_kernel(kernel, X, Y):
+        """Generate a kernel only between two tasks."""
         VX, VY = ProgramBags.pairwise_index(X, Y)
 
         return kernel(VX, VY)
 
     @staticmethod
     def dis_to_sim(X):
+        """Return a similarity measure by using a distance measure."""
         MAX = np.full(X.shape, np.amax(X), dtype=np.float64)
 
         return MAX - X

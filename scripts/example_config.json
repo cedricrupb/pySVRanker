@@ -1,0 +1,40 @@
+{
+  "BagLoadingTask": {
+    "out_dir": "./experiements/",
+    "pattern": "./test/Kernel_%d_%d.json"
+  },
+  "BagGraphIndexTask": {
+    "out_dir": "./experiements/"
+  },
+  "BagFeatureTask": {
+    "out_dir": "./experiements/"
+  },
+  "BagGramTask": {
+    "svcomp": "svcomp18",
+    "out_dir": "./experiements/"
+  },
+  "BagSumGramTask": {
+    "out_dir": "./experiements/"
+  },
+  "BagNormalizeGramTask": {
+    "out_dir": "./experiements/"
+  },
+  "BagLabelMatrixTask": {
+      "out_dir": "./result/"
+  },
+  "BagCalculateGramTask": {
+      "out_dir": "./experiements/"
+  },
+  "CzechCrossPredictTask": {
+    "out_dir": "./experiements/czech/"
+  },
+  "CzechSingleOptimizationTask": {
+      "out_dir": "./experiements/czech/"
+  },
+  "CzechSingleEvaluationTask": {
+      "out_dir": "./experiements/czech/"
+  },
+  "CzechSingleEvaluationTask": {
+    "grid_opt": false
+  }
+}

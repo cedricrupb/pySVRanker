@@ -1,9 +1,9 @@
-from .bag import ProgramBags, read_bag, normalize_gram, enumerateable, indexMap
+"""Tasks to work with bag representation of Software Verification Graphs."""
+from .bag import ProgramBags, normalize_gram, enumerateable, indexMap
 from pyTasks.task import Task, Parameter
 from pyTasks.task import Optional, containerHash
 from pyTasks.target import CachedTarget, LocalTarget
 from pyTasks.target import JsonService, FileTarget
-from .gram_tasks import ExtractKernelEntitiesTask
 from .kernel_function import select_full
 import numpy as np
 from .classification import select_classifier, rank_y
@@ -11,7 +11,6 @@ from .rank_scores import select_score
 import math
 import time
 from sklearn.model_selection import KFold
-import random
 from sklearn.grid_search import ParameterGrid
 from sklearn.manifold import MDS
 import matplotlib.pyplot as plt
@@ -20,26 +19,41 @@ from scipy.sparse import issparse, coo_matrix
 from .prepare_tasks import select_svcomp
 import re
 from .svcomp15 import MissingPropertyTypeException
-from sklearn.decomposition import KernelPCA
 import json
-from scipy.sparse import issparse
 
 
 def is_correct(label):
+    """Check if given label represents a correct solution."""
     return label['solve'] == 1
 
 
 def is_false(label):
+    """Check if given label represents a incorrect solution."""
     return label['solve'] == -1
 
 
 def is_faster(labelA, labelB, major=False):
+    """
+    Check which tool is faster in computation.
+
+    A tool is faster if it has a lower cputime.
+    However, we don't know the ground if the runtime is above 900s.
+    In the case we haven't time information (both runtimes are above 900s),
+    major gives a general tendency.
+    """
     if labelB['time'] >= 900:
         return labelA['time'] < 900 or major
     return labelA['time'] < labelB['time']
 
 
 def index(x, y, n):
+    """
+    Return a single index for given coordinates.
+
+    Map given coordinates to an index in a linear memoryself.
+    It is important that (x, y) and (y, x) share the same index.
+    The output ranges between 0 and n(n+1)/2.
+    """
     if x >= n:
         raise ValueError('x: %d is out of range 0 to %d' % (x, n))
     if y >= n:
@@ -57,6 +71,7 @@ def index(x, y, n):
 
 
 def reverse_index(i, n):
+    """Inverse operation to index."""
     if i < n:
         return i, i
 
@@ -70,6 +85,7 @@ def reverse_index(i, n):
 
 
 def is_dict(D):
+    """Check if the given object is a dictionary."""
     try:
         D.items()
         return True
@@ -78,6 +94,7 @@ def is_dict(D):
 
 
 def mean_std(L):
+    """Calculate mean of dictionary lists."""
     O = {}
     for k in L[0]:
         if 'raw' in k:
@@ -97,6 +114,12 @@ def mean_std(L):
 
 
 def dominates(A, B):
+    """
+    Test if A dominates B.
+
+    A vector A dominates a vector B if every entry of A is smaller than the
+    matching entry of B.
+    """
     for i, a in enumerate(A):
         if a < B[i]:
             return False
@@ -105,6 +128,7 @@ def dominates(A, B):
 
 
 def pareto_front(knownSet, entity, key):
+    """Search for Pareto front in a given set."""
     front = []
     entity_add = True
     entity_k = key(entity)
@@ -122,10 +146,22 @@ def pareto_front(knownSet, entity, key):
 
 
 def is_better(ci, cj, fij):
+    """
+    Decide which tool is better.
+
+    ci: 1 if tool_i can solve the problem
+    cj: 1 if tool_j can solve the problem
+    fij: 1 if tool_i is faster than tool_j
+    """
     return ci > cj or (ci == cj and fij == 1)
 
 
 def borda_major(bag):
+    """
+    Generate a majority ranking for a set of bags.
+
+    The majority ranking is decided by Borda' method.
+    """
     votes = {}
     for k, B in bag.items():
         for tool_x, label_x in B['label'].items():
@@ -154,6 +190,7 @@ def borda_major(bag):
 
 
 def ranking(row, n):
+    """Decode a ranking from a label matrix."""
     N = np.zeros(n)
 
     for i in range(n):
@@ -168,11 +205,18 @@ def ranking(row, n):
 
 
 class FeatureJsonService:
+    """A service to decode and encode sparse matrix representation."""
 
     def __init__(self, s):
+        """
+        Init service.
+
+        Parameter s is a service endpoint.
+        """
         self.__src = s
 
     def emit(self, obj):
+        """Emit a sparse matrix to a service endpoint."""
         for k, V in obj.items():
             if issparse(V):
                 NZ = V.nonzero()
@@ -191,6 +235,7 @@ class FeatureJsonService:
         json.dump(obj, self.__src, indent=4)
 
     def query(self):
+        """Load a sparse matrix from a service endpoint."""
         obj = json.load(self.__src)
 
         for k, V in obj.items():
@@ -202,23 +247,35 @@ class FeatureJsonService:
         return obj
 
     def isByte(self):
+        """Check if we use a binary representation."""
         return False
 
 
 class BagLoadingTask(Task):
+    """Load a bag representation from memory."""
+
     pattern = Parameter('./task_%d_%d.json')
 
     def __init__(self, h, D):
+        """
+        Init tasks with loading parameter.
+
+        h: The iteration depth.
+        D: The AST depth.
+        """
         self.h = h
         self.D = D
 
     def require(self):
+        """Requirements."""
         return None
 
     def __taskid__(self):
+        """Task id for the loading task."""
         return 'BagLoadingTask_%d_%d' % (self.h, self.D)
 
     def output(self):
+        """Output for the task."""
         try:
             src_path = self.pattern.value % (self.h, self.D)
         except TypeError:
@@ -230,14 +287,26 @@ class BagLoadingTask(Task):
         )
 
     def run(self):
+        """Nothing to do here."""
         pass
 
 
 class BagFilterTask(Task):
+    """Filter bag repres for given category and task_type."""
+
     out_dir = Parameter('./gram/')
     svcomp = Parameter('svcomp18')
 
     def __init__(self, h, D, category=None, task_type=None, by_id=False):
+        """
+        Init Task.
+
+        h: iteration depth for loading task
+        D: AST depth for loading task
+        category: Task category (e.g. array-examples)
+        task_type: type of task (e.g. reach for reachability problems)
+        by_id: Apply filter on task id instead of file name.
+        """
         self.h = h
         self.D = D
         self.category = category
@@ -260,14 +329,14 @@ class BagFilterTask(Task):
             return category in categories
         self._filter = filter
 
-    def detect_property(self, path):
+    def _detect_property(self, path):
         try:
             return self._svcomp.set_of_properties(path)
         except MissingPropertyTypeException:
             print('Problem with property. Ignore')
             return None
 
-    def detect_category(self, path):
+    def _detect_category(self, path):
         reg = re.compile('sv-benchmarks\/c\/[^\/]+\/')
         o = reg.search(path)
         if o is None:
@@ -275,9 +344,11 @@ class BagFilterTask(Task):
         return o.group()[16:-1]
 
     def require(self):
+        """Require to load the bag first."""
         return BagLoadingTask(self.h, self.D)
 
     def __taskid__(self):
+        """Task id."""
         s = 'BagFilterTask_%d_%d' % (self.h, self.D)
         if self.category is not None:
             s += '_'+str(containerHash(self.category))
@@ -286,12 +357,14 @@ class BagFilterTask(Task):
         return s
 
     def output(self):
+        """Define a json output."""
         path = self.out_dir.value + self.__taskid__() + '.json'
         return CachedTarget(
             LocalTarget(path, service=JsonService)
         )
 
     def run(self):
+        """Filter loaded bag and emit."""
         self._init_filter()
         with self.input()[0] as i:
             B = i.query()
@@ -303,8 +376,8 @@ class BagFilterTask(Task):
             else:
                 f = V['file']
             if not self._filter(
-                self.detect_category(f),
-                self.detect_property(f)
+                self._detect_category(f),
+                self._detect_property(f)
             ):
                 D.add(name)
 
@@ -315,19 +388,35 @@ class BagFilterTask(Task):
 
 
 class BagGraphIndexTask(Task):
+    """Generate a index for graph id."""
     out_dir = Parameter('./gram/')
 
     def __init__(self, h, D, category=None, task_type=None):
+        """
+        Init Task.
+
+        h: iteration depth for loading task
+        D: AST depth for loading task
+        category: Task category (e.g. array-examples)
+        task_type: type of task (e.g. reach for reachability problems)
+
+        Caution: Ids between iterations should be the same. They can change
+        between AST depths. Standard usage: Generate graph index only for
+        one iteration depth (e.g. h=0) and use the index for all
+        remaining cases.
+        """
         self.h = h
         self.D = D
         self.category = category
         self.task_type = task_type
 
     def require(self):
+        """Load a filter task."""
         return BagFilterTask(self.h, self.D,
                              self.category, self.task_type)
 
     def __taskid__(self):
+        """Task id."""
         s = 'BagGraphIndexTask_%d' % (self.D)
         if self.category is not None:
             s += '_'+str(containerHash(self.category))
@@ -336,12 +425,14 @@ class BagGraphIndexTask(Task):
         return s
 
     def output(self):
+        """Output as Json."""
         path = self.out_dir.value + self.__taskid__() + '.json'
         return CachedTarget(
             LocalTarget(path, service=JsonService)
         )
 
     def run(self):
+        """Index the ids of the given bag."""
         with self.input()[0] as i:
             D = i.query()
 
@@ -355,16 +446,35 @@ class BagGraphIndexTask(Task):
 
 
 class BagLabelMatrixTask(Task):
+    """
+    Generate a matrix for the given label set.
+
+    Layout is depended on the number of tools N.
+    A entry (r, c) is 1 if r < N and tool_r can solve task_c.
+    A entry (r, c) is 1 if
+        + r >= N
+        + x, y = reverse_index(r, N)
+        + tool_x is faster than tool_y on task_c
+
+    A entry (r, c) is -1 if
+        + r >= N
+        + x, y = reverse_index(r, N)
+        + tool_x is slower than tool_y on task_c
+
+    Otherwise, the entry is 0.
+    """
     out_dir = Parameter('./gram/')
     allowed = Parameter(None)
 
     def __init__(self, h, D, category=None, task_type=None):
+        """Init Task."""
         self.h = h
         self.D = D
         self.category = category
         self.task_type = task_type
 
     def require(self):
+        """Requirement (Graph index and filtered input)."""
         return [BagGraphIndexTask(self.h,
                                   self.D,
                                   self.category, self.task_type),
@@ -372,6 +482,7 @@ class BagLabelMatrixTask(Task):
                               self.category, self.task_type)]
 
     def __taskid__(self):
+        """Task id."""
         s = 'BagLabelMatrixTask_%d_%d' % (self.h, self.D)
         if self.category is not None:
             s += '_'+str(containerHash(self.category))
@@ -380,6 +491,7 @@ class BagLabelMatrixTask(Task):
         return s
 
     def output(self):
+        """Output as Json"""
         path = self.out_dir.value + self.__taskid__() + '.json'
         return CachedTarget(
             LocalTarget(path, service=JsonService)
@@ -387,6 +499,7 @@ class BagLabelMatrixTask(Task):
 
     @staticmethod
     def common_tools(bag):
+        """Retrieve all tools that are common to all tasks."""
         F = len(bag)
         C = {}
         for B in bag.values():
@@ -403,6 +516,7 @@ class BagLabelMatrixTask(Task):
         return tools
 
     def run(self):
+        """Generate label matrix."""
         with self.input()[0] as i:
             graphIndex = i.query()
 
@@ -452,6 +566,8 @@ class BagLabelMatrixTask(Task):
 
 
 class BagFeatureTask(Task):
+    """DEPRECATED."""
+
     out_dir = Parameter('./gram/')
     svcomp = Parameter('svcomp15')
 
@@ -508,10 +624,21 @@ class BagFeatureTask(Task):
 
 
 class BagGramTask(Task):
+    """Generate the gram matrix for a given bags."""
+
     out_dir = Parameter('./gram/')
-    svcomp = Parameter('svcomp15')
+    svcomp = Parameter('svcomp18')
 
     def __init__(self, h, D, category=None, task_type=None, kernel='linear'):
+        """
+        Init task.
+
+        h: iteration depth for loading task
+        D: AST depth for loading task
+        category: Task category (e.g. array-examples)
+        task_type: type of task (e.g. reach for reachability problems)
+        kernel: The kernel function to apply (see kernel_function.py)
+        """
         self.h = h
         self.D = D
         self.category = category
@@ -519,6 +646,7 @@ class BagGramTask(Task):
         self.kernel = kernel
 
     def require(self):
+        """Requirement."""
         return [BagGraphIndexTask(self.h,
                                   self.D,
                                   self.category, self.task_type),
@@ -526,6 +654,7 @@ class BagGramTask(Task):
                               self.category, self.task_type)]
 
     def __taskid__(self):
+        """Task id."""
         cat = 'all'
         if self.category is not None:
             cat = str(containerHash(self.category))
@@ -538,12 +667,19 @@ class BagGramTask(Task):
                + tt
 
     def output(self):
+        """Output as Json."""
         path = self.out_dir.value + self.__taskid__() + '.json'
         return CachedTarget(
             LocalTarget(path, service=JsonService)
         )
 
     def run(self):
+        """
+        Generate kernel from input bags.
+
+        Bags are firstly represented as a vector (indexing labels in bag).
+        Then the kernel function will be applied.
+        """
         with self.input()[0] as i:
             graphIndex = i.query()
 
@@ -576,10 +712,21 @@ class BagGramTask(Task):
 
 
 class BagSumGramTask(Task):
+    """A task to sum individual grams into one gram."""
+
     out_dir = Parameter('./gram/')
 
     def __init__(self, hSet, D, category=None,
                  task_type=None, kernel='linear'):
+        """
+        Init task.
+
+        hSet: a set of iteration bounds to sum.
+        D: AST depth bound
+        category: Task category (e.g. array-examples)
+        task_type: type of task (e.g. reach for reachability problems)
+        kernel: The kernel function to apply (see kernel_function.py)
+        """
         self.hSet = hSet
         self.D = D
         self.category = category
@@ -587,12 +734,14 @@ class BagSumGramTask(Task):
         self.kernel = kernel
 
     def require(self):
+        """Requirement."""
         return [
             BagGramTask(h, self.D, self.category, self.task_type, self.kernel)
             for h in self.hSet
         ]
 
     def __taskid__(self):
+        """Task id."""
         cat = 'all'
         if self.category is not None:
             cat = str(containerHash(self.category))
@@ -609,12 +758,14 @@ class BagSumGramTask(Task):
             + tt
 
     def output(self):
+        """Output as Json."""
         path = self.out_dir.value + self.__taskid__() + '.json'
         return CachedTarget(
             LocalTarget(path, service=JsonService)
         )
 
     def run(self):
+        """Calculate sum."""
         GR = None
 
         for inp in self.input():
@@ -641,9 +792,20 @@ class BagSumGramTask(Task):
 
 
 class BagNormalizeGramTask(Task):
+    """Kernel normalization task."""
+
     out_dir = Parameter('./gram/')
 
     def __init__(self, h, D, category=None, task_type=None, kernel='linear'):
+        """
+        Init task.
+
+        h: a set of iteration bounds for normalization (h=2 <==> h={2})
+        D: AST depth bound
+        category: Task category (e.g. array-examples)
+        task_type: type of task (e.g. reach for reachability problems)
+        kernel: The kernel function to apply (see kernel_function.py)
+        """
         self.h = h
         self.D = D
         self.category = category
@@ -651,6 +813,7 @@ class BagNormalizeGramTask(Task):
         self.kernel = kernel
 
     def require(self):
+        """Requirement."""
         hSet = [h for h in enumerateable(self.h)]
         if len(hSet) == 1:
             return BagGramTask(hSet[0], self.D,
@@ -660,6 +823,7 @@ class BagNormalizeGramTask(Task):
                                   self.category, self.task_type, self.kernel)
 
     def __taskid__(self):
+        """Task id."""
         cat = 'all'
         if self.category is not None:
             cat = str(containerHash(self.category))
@@ -676,12 +840,14 @@ class BagNormalizeGramTask(Task):
             + tt
 
     def output(self):
+        """Output as Json."""
         path = self.out_dir.value + self.__taskid__() + '.json'
         return CachedTarget(
             LocalTarget(path, service=JsonService)
         )
 
     def run(self):
+        """Normalize input gram matrix."""
         with self.input()[0] as i:
             D = i.query()
             graphIndex = D['graphIndex']
@@ -700,6 +866,8 @@ class BagNormalizeGramTask(Task):
 
 
 class BagClassifierEvalutionTask(Task):
+    """DEPRECATED."""
+
     out_dir = Parameter('./eval/')
 
     def __init__(self, clf_type, clf_params,
@@ -826,6 +994,8 @@ class BagClassifierEvalutionTask(Task):
 
 
 class BagKFoldTask(Task):
+    """DEPRECATED."""
+
     k = Parameter(10)
     out_dir = Parameter('./eval/')
     random_state = Parameter(0)
@@ -921,6 +1091,8 @@ class BagKFoldTask(Task):
 
 
 class BagParameterGridTask(Task):
+    """DEPRECATED."""
+
     out_dir = Parameter('./eval/')
 
     def __init__(self, clf_type, paramGrid,
@@ -999,6 +1171,8 @@ class BagParameterGridTask(Task):
 
 
 class BagKParamGridTask(Task):
+    """DEPRECATED."""
+
     k = Parameter(10)
     out_dir = Parameter('./eval/')
     random_state = Parameter(0)
@@ -1072,64 +1246,68 @@ class BagKParamGridTask(Task):
 
 
 class BagMDSTask(Task):
-        out_dir = Parameter('./gram/')
+    """DEPRECATED."""
 
-        def __init__(self, h, D, category=None,
-                     task_type=None, kernel='linear'):
-            self.h = h
-            self.D = D
-            self.category = category
-            self.task_type = task_type
-            self.kernel = kernel
+    out_dir = Parameter('./gram/')
 
-        def require(self):
-            h = [h for h in range(self.h+1)]
-            return [BagNormalizeGramTask(h, self.D, self.category,
-                                         self.task_type,
-                                         self.kernel)]
+    def __init__(self, h, D, category=None,
+                 task_type=None, kernel='linear'):
+        self.h = h
+        self.D = D
+        self.category = category
+        self.task_type = task_type
+        self.kernel = kernel
 
-        def __taskid__(self):
-            cat = 'all'
-            if self.category is not None:
-                cat = '_'.join(enumerateable(self.category))
+    def require(self):
+        h = [h for h in range(self.h+1)]
+        return [BagNormalizeGramTask(h, self.D, self.category,
+                                     self.task_type,
+                                     self.kernel)]
 
-            tt = ''
-            if self.task_type is not None:
-                tt = '_'+str(self.task_type)
+    def __taskid__(self):
+        cat = 'all'
+        if self.category is not None:
+            cat = '_'.join(enumerateable(self.category))
 
-            return 'BagMDSTask_%d_%d_%s_%s' % (self.h, self.D, self.kernel,
-                                               cat
-                                               )\
-                + tt
+        tt = ''
+        if self.task_type is not None:
+            tt = '_'+str(self.task_type)
 
-        def output(self):
-            path = self.out_dir.value + self.__taskid__() + '.json'
-            return CachedTarget(
-                LocalTarget(path, service=JsonService)
-            )
+        return 'BagMDSTask_%d_%d_%s_%s' % (self.h, self.D, self.kernel,
+                                           cat
+                                           )\
+            + tt
 
-        def run(self):
-            with self.input()[0] as i:
-                D = i.query()
-                graphIndex = D['graphIndex']
-                X = np.array(D['data'])
-                del D
+    def output(self):
+        path = self.out_dir.value + self.__taskid__() + '.json'
+        return CachedTarget(
+            LocalTarget(path, service=JsonService)
+        )
 
-            dis = np.ones(X.shape, dtype=X.dtype) - X
+    def run(self):
+        with self.input()[0] as i:
+            D = i.query()
+            graphIndex = D['graphIndex']
+            X = np.array(D['data'])
+            del D
 
-            mds = MDS(n_components=2, dissimilarity="precomputed", n_init=10)
-            X_r = mds.fit_transform(dis)
-            stress = mds.stress_
+        dis = np.ones(X.shape, dtype=X.dtype) - X
 
-            with self.output() as o:
-                o.emit({
-                    'graphIndex': graphIndex,
-                    'data': X_r.tolist(),
-                    'stress': stress
-                })
+        mds = MDS(n_components=2, dissimilarity="precomputed", n_init=10)
+        X_r = mds.fit_transform(dis)
+        stress = mds.stress_
+
+        with self.output() as o:
+            o.emit({
+                'graphIndex': graphIndex,
+                'data': X_r.tolist(),
+                'stress': stress
+            })
 
 
 class BagMDSVisualizeLabelTask(Task):
+    """DEPRECATED."""
+
     out_dir = Parameter('./gram/')
 
     def __init__(self, h, D, category=None, task_type=None, kernel='linear'):
@@ -1251,6 +1429,8 @@ class BagMDSVisualizeLabelTask(Task):
 
 
 class BagMDSCategoryTask(Task):
+    """DEPRECATED."""
+
     out_dir = Parameter('./gram/')
 
     def __init__(self, h, D, category=None, kernel='linear'):
