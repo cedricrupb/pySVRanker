@@ -164,7 +164,6 @@ class ProgramBags:
         data = []
         floatType = False
 
-        K = {}
         for ID, entry in self.bags.items():
             gI = indexMap(ID, self.graphIndex)
             for n, c in entry['kernel_bag'].items():

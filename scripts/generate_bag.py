@@ -36,9 +36,12 @@ node_relabel = {
     "INT_LITERAL_LARGE": "INT_LITERAL"
 }
 
+edge_relabel = {}
+
 
 def __relabel(G, n, relabel={}):
     global node_relabel
+    global edge_relabel
 
     source_label = G.nodes[n]['label']
 
@@ -58,6 +61,10 @@ def __relabel(G, n, relabel={}):
             source = node_relabel[source]
 
         edge_t = d
+
+        if edge_t in edge_relabel:
+            edge_t = edge_relabel[edge_t]
+
         neighbours.append(
             str(mmh3.hash(
                 '_'.join(

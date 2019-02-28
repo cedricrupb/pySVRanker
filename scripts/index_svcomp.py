@@ -162,6 +162,21 @@ def parse_csv(file, results):
                 }
 
 
+def parse(src_dir, bench_prefix, csv=False):
+
+    results = {}
+
+    for f in tqdm(glob(os.path.join(src_dir,
+                                    '*.xml.bz2' if not csv else '*.csv'))):
+        if csv:
+            parse_csv(f, results)
+        else:
+            parse_xml(f, results)
+
+    return results
+
+
+
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument("dir", type=str, help="directory of XML files created by Benchexec")
@@ -174,14 +189,7 @@ if __name__ == '__main__':
     if args.prefix:
         bench_prefix = args.prefix
 
-    results = {}
-
-    for f in tqdm(glob(os.path.join(args.dir,
-                                    '*.xml.bz2' if not args.csv else '*.csv'))):
-        if args.csv:
-            parse_csv(f, results)
-        else:
-            parse_xml(f, results)
+    results = parse(args.dir, bench_prefix, args.csv)
 
     with open(args.out, 'w') as o:
         json.dump(results, o, indent=4)
