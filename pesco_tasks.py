@@ -259,61 +259,55 @@ def _is_list(obj):
         return False
 
 
+def rank_compare(l1, l2):
+    if l1['solve'] > l2['solve']:
+        return 1
+    if l2['solve'] > l1['solve']:
+        return 0
+    if l1['time'] >= 900 and l2['time'] >= 900:
+        return 0.5
+    return 1 if l1['time'] < l2['time'] else 0
+
+
 def rank_tools(L, tools):
     ranks = {}
+    n = len(tools)
 
     for k, V in L.items():
         ranks[k] = {}
         for prop, V in V.items():
+
+            for t in tools:
+                if t not in V:
+                    V[t] = {'solve': 0, 'time': 900}
+
             if prop not in ranks[k]:
                 ranks[k][prop] = {}
+            for i in range(n-1):
+                for j in range(i+1, n):
+                    t1 = tools[i]
+                    t2 = tools[j]
+                    l1 = V[t1]
+                    l2 = V[t2]
 
-            for toolA, labelA in V.items():
+                    if t1 not in ranks[k][prop]:
+                        ranks[k][prop][t1] = 0
+                    if t2 not in ranks[k][prop]:
+                        ranks[k][prop][t2] = 0
 
-                if toolA not in tools[prop]:
-                    continue
-
-                if toolA not in ranks[k][prop]:
-                    ranks[k][prop][toolA] = 0
-
-                for toolB, labelB in V.items():
-                    if toolB not in tools[prop]:
-                        continue
-
-                    if toolB not in ranks[k][prop]:
-                        ranks[k][prop][toolB] = 0
-
-                    if toolA < toolB:
-                        betterAB = False
-                        possible_tie = False
-
-                        if is_correct(labelA):
-                            if is_correct(labelB):
-                                possible_tie = True
-                            else:
-                                betterAB = True
-                        elif is_false(labelA):
-                            if is_false(labelB):
-                                possible_tie = True
-                        else:
-                            if is_false(labelB):
-                                betterAB = True
-                            if not is_correct(labelB):
-                                possible_tie = True
-
-                        if possible_tie:
-                            ranks[k][prop][toolA] += 0.5
-                            ranks[k][prop][toolB] += 0.5
-
-                        ranks[k][prop][toolA if betterAB else toolB] += 1
+                    c = rank_compare(l1, l2)
+                    ranks[k][prop][t1] += c
+                    ranks[k][prop][t2] += (1 - c)
 
     for k, V in ranks.items():
         for prop, V in list(V.items()):
+            if len(V) == 0:
+                continue
             value = sorted(list(V.items()), key=lambda X: X[1], reverse=True)
             R = [value[0][0]]
             for i in range(1, len(value)):
                 t, v = value[i]
-                lr = R[i - 1]
+                lr = R[-1]
                 if _is_list(lr):
                     if V[lr[-1]] == v:
                         lr.append(t)
@@ -321,7 +315,7 @@ def rank_tools(L, tools):
                         R.append(t)
                 else:
                     if V[lr] == v:
-                        R[i - 1] = [lr, t]
+                        R[-1] = [lr, t]
                     else:
                         R.append(t)
             ranks[k][prop] = R
@@ -354,29 +348,21 @@ class SVCompRanking(Task):
     @staticmethod
     def common_tools(L):
         tools = {}
-
-        catCount = {}
+        counter = 0
 
         for k, V in L.items():
             for prop, V in V.items():
-                if prop not in tools:
-                    tools[prop] = {}
-                if prop not in catCount:
-                    catCount[prop] = 0
-                catCount[prop] += 1
+                counter += 1
                 for tool in V.keys():
                     if tool == 'name':
                         continue
-                    if tool not in tools[prop]:
-                        tools[prop][tool] = 0
-                    tools[prop][tool] += 1
-        result = {}
-        for prop, V in tools.items():
-            for tool, c in V.items():
-                if c >= catCount[prop]-5:
-                    if prop not in result:
-                        result[prop] = set([])
-                    result[prop].add(tool)
+                    if tool not in tools:
+                        tools[tool] = 0
+                    tools[tool] += 1
+        result = []
+        for tool, c in tools.items():
+            if c >= counter-5 and 'cpa-bam' not in tool:
+                result.append(tool)
         return result
 
     def run(self):
@@ -845,6 +831,11 @@ def label_clf(graphIndex, L, tools):
 
     for k, label in L.items():
         for prop, label in label.items():
+
+            for t in tools:
+                if t not in label:
+                    label[t] = {'solve': 0, 'time': 900}
+
             lix = y_ix[prop][k]
             for i in range(n-1):
                 for j in range(i+1, n):
@@ -884,29 +875,21 @@ class SVCompLabelMatrixTask(Task):
     @staticmethod
     def common_tools(L):
         tools = {}
-
-        catCount = {}
+        counter = 0
 
         for k, V in L.items():
             for prop, V in V.items():
-                if prop not in tools:
-                    tools[prop] = {}
-                if prop not in catCount:
-                    catCount[prop] = 0
-                catCount[prop] += 1
+                counter += 1
                 for tool in V.keys():
                     if tool == 'name':
                         continue
-                    if tool not in tools[prop]:
-                        tools[prop][tool] = 0
-                    tools[prop][tool] += 1
-        result = {}
-        for prop, V in tools.items():
-            for tool, c in V.items():
-                if c >= catCount[prop]-5:
-                    if prop not in result:
-                        result[prop] = set([])
-                    result[prop].add(tool)
+                    if tool not in tools:
+                        tools[tool] = 0
+                    tools[tool] += 1
+        result = []
+        for tool, c in tools.items():
+            if c >= counter-5 and 'cpa-bam' not in tool:
+                result.append(tool)
         return result
 
     def run(self):
