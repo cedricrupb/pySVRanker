@@ -36,7 +36,11 @@ node_relabel = {
     "INT_LITERAL_LARGE": "INT_LITERAL"
 }
 
-edge_relabel = {}
+edge_relabel = {
+    'cd_t': 'cd',
+    'cd_f': 'cd',
+    'dummy': 'cfg'
+}
 
 
 def __relabel(G, n, relabel={}):

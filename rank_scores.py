@@ -39,8 +39,34 @@ def norm_rank(A, B):
     return [x for x in A if x in B], [y for y in B if y in A]
 
 
+def _is_list(obj):
+    if isinstance(obj, str):
+        return False
+    try:
+        _ = (e for e in obj)
+        return True
+    except TypeError:
+        return False
+
+
+# Assume B has no ties
+def restricted_tie_break(A, B):
+    b = {t: i for i, t in enumerate(B)}
+
+    R = []
+    for a in A:
+        if _is_list(a):
+            a = sorted(list(a), key=lambda x: b[x])
+            R.extend(a)
+        else:
+            R.append(a)
+
+    return R, B
+
+
 def spearmann_score(prediction_ranking, expected_ranking, graph=None):
     prediction_ranking, expected_ranking = norm_rank(prediction_ranking, expected_ranking)
+    expected_ranking, prediction_ranking = restricted_tie_break(expected_ranking, prediction_ranking)
     pr = {t: i for i, t in enumerate(prediction_ranking)}
     er = {t: i for i, t in enumerate(expected_ranking)}
     rg = 0.0
@@ -73,13 +99,38 @@ def kendall_tau_distance(prediction_ranking, expected_ranking):
     return dis
 
 
+def _kendall_rank_pairs(ranking):
+    for i in range(len(ranking)-1):
+        for j in range(i + 1, len(ranking)):
+            a = ranking[i]
+            b = ranking[j]
+
+            if _is_list(a):
+                for _a in a:
+                    yield (_a, b)
+            elif _is_list(b):
+                for _b in b:
+                    yield (a, _b)
+            else:
+                yield (a, b)
+
+
 def kendall_tau_score(prediction_ranking, expected_ranking, graph=None):
     prediction_ranking, expected_ranking = norm_rank(prediction_ranking, expected_ranking)
 
-    dis = kendall_tau_distance(prediction_ranking, expected_ranking)
-    n = len(prediction_ranking)
+    count = 0
+    n_c = 0
+    n_d = 0
+    pr = {t: i for i, t in enumerate(prediction_ranking)}
 
-    return 4 * dis / (n * (n - 1))
+    for (a, b) in _kendall_rank_pairs(expected_ranking):
+        if pr[a] < pr[b]:
+            n_c += 1
+        else:
+            n_d += 1
+        count += 1
+
+    return (n_c - n_d) / count
 
 
 def inv_kendall_tau_score(prediction_ranking, expected_ranking, graph=None):

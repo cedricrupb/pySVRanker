@@ -249,57 +249,17 @@ class SVCompIndex(Task):
             o.emit(results)
 
 
-def majorRank(L, tools):
-
-    ranks = {}
-
-    for V in L.values():
-        for prop, V in V.items():
-            if prop not in ranks:
-                ranks[prop] = {}
-            for toolA, labelA in V.items():
-
-                if toolA not in tools[prop]:
-                    continue
-
-                if toolA not in ranks[prop]:
-                    ranks[prop][toolA] = 0
-
-                for toolB, labelB in V.items():
-                    if toolB not in tools[prop]:
-                        continue
-
-                    if toolB not in ranks[prop]:
-                        ranks[prop][toolB] = 0
-
-                    if toolA < toolB:
-                        betterAB = False
-                        possible_tie = False
-
-                        if is_correct(labelA):
-                            if is_correct(labelB):
-                                possible_tie = True
-                            else:
-                                betterAB = True
-                        elif is_false(labelA):
-                            if is_false(labelB):
-                                possible_tie = True
-                        else:
-                            if is_false(labelB):
-                                betterAB = True
-                            if not is_correct(labelB):
-                                possible_tie = True
-
-                        if possible_tie:
-                            if is_faster(labelA, labelB) and is_faster(labelB, labelA):
-                                continue
-                            betterAB = is_faster(labelA, labelB)
-
-                        ranks[prop][toolA if betterAB else toolB] += 1
-    return ranks
+def _is_list(obj):
+    if isinstance(obj, str):
+        return False
+    try:
+        _ = (e for e in obj)
+        return True
+    except TypeError:
+        return False
 
 
-def rank_tools(L, major, tools):
+def rank_tools(L, tools):
     ranks = {}
 
     for k, V in L.items():
@@ -342,15 +302,29 @@ def rank_tools(L, major, tools):
                                 possible_tie = True
 
                         if possible_tie:
-                            if is_faster(labelA, labelB) and is_faster(labelB, labelA):
-                                betterAB = major[prop][toolA] > major[prop][toolB]
-                            betterAB = is_faster(labelA, labelB)
+                            ranks[k][prop][toolA] += 0.5
+                            ranks[k][prop][toolB] += 0.5
 
                         ranks[k][prop][toolA if betterAB else toolB] += 1
 
     for k, V in ranks.items():
         for prop, V in list(V.items()):
-            ranks[k][prop] = [tool for tool, _ in sorted(list(V.items()), key=lambda X: X[1], reverse=True)]
+            value = sorted(list(V.items()), key=lambda X: X[1], reverse=True)
+            R = [value[0][0]]
+            for i in range(1, len(value)):
+                t, v = value[i]
+                lr = R[i - 1]
+                if _is_list(lr):
+                    if V[lr[-1]] == v:
+                        lr.append(t)
+                    else:
+                        R.append(t)
+                else:
+                    if V[lr] == v:
+                        R[i - 1] = [lr, t]
+                    else:
+                        R.append(t)
+            ranks[k][prop] = R
 
     return ranks
 
@@ -411,9 +385,7 @@ class SVCompRanking(Task):
 
         tools = SVCompRanking.common_tools(L)
 
-        major_ranks = majorRank(L, tools)
-
-        ranks = rank_tools(L, major_ranks, tools)
+        ranks = rank_tools(L, tools)
 
         with self.output() as o:
             o.emit(ranks)
@@ -838,8 +810,55 @@ class PescoNormGramTask(Task):
             o.emit(data)
 
 
+def y_index(graphIndex):
+    counter = 0
+    label_index = {}
+    rv = {v: k for k, v in graphIndex['index'].items()}
+
+    for prop, L in graphIndex['categories'].items():
+        if prop not in label_index:
+            label_index[prop] = {}
+        for ix in L:
+            k = rv[ix]
+            if k not in label_index[prop]:
+                label_index[prop][k] = counter
+                counter += 1
+
+    return label_index, counter
+
+
+def compare(l1, l2):
+    if l1['solve'] > l2['solve']:
+        return 1
+    if l2['solve'] > l1['solve']:
+        return -1
+    if l1['time'] >= 900 and l2['time'] >= 900:
+        return 0
+    return 1 if l1['time'] < l2['time'] else -1
+
+
+def label_clf(graphIndex, L, tools):
+    y_ix, N = y_index(graphIndex)
+    n = len(tools)
+    w = int(n * (n-1) / 2)
+    M = np.zeros((N, w))
+
+    for k, label in L.items():
+        for prop, label in label.items():
+            lix = y_ix[prop][k]
+            for i in range(n-1):
+                for j in range(i+1, n):
+                    pix = index(i, j, n)
+
+                    l1 = label[tools[i]]
+                    l2 = label[tools[j]]
+                    M[lix, pix] = compare(l1, l2)
+
+    return y_ix, M
+
+
 class SVCompLabelMatrixTask(Task):
-    out_dir = Parameter("./label/")
+    out_dir = Parameter("./index/")
 
     def __init__(self, svcomp_name, directory, csv=False):
         self.directory = directory
@@ -847,11 +866,12 @@ class SVCompLabelMatrixTask(Task):
         self.csv = csv
 
     def require(self):
-        return [SVCompRanking(
-                                self.svcomp_name, self.directory,
-                                self.csv
-                            )
-                ]
+        return [SVCompIndex(
+            self.svcomp_name, self.directory,
+            self.csv
+        ), SVCompGraphIndexTask(self.svcomp_name,
+                                self.directory,
+                                self.csv)]
 
     def __taskid__(self):
         return "SVCompLabelMatrixTask_%s" % self.svcomp_name
@@ -863,70 +883,46 @@ class SVCompLabelMatrixTask(Task):
 
     @staticmethod
     def common_tools(L):
-        count = 0
-        tool_count = {}
+        tools = {}
+
+        catCount = {}
 
         for k, V in L.items():
-            count += 1
-            tools = {}
-            propC = 0
-            for prop, R in V.items():
-                propC += 1
-                for tool in R:
-                    if tool not in tools:
-                        tools[tool] = 0
-                    tools[tool] += 1
-            for tool, c in tools.items():
-                if c >= propC:
-                    if tool not in tool_count:
-                        tool_count[tool] = 0
-                    tool_count[tool] += 1
-
-        return [t for t, c in tool_count.items() if c >= count-5 and 'cpa-bam' not in t]
+            for prop, V in V.items():
+                if prop not in tools:
+                    tools[prop] = {}
+                if prop not in catCount:
+                    catCount[prop] = 0
+                catCount[prop] += 1
+                for tool in V.keys():
+                    if tool == 'name':
+                        continue
+                    if tool not in tools[prop]:
+                        tools[prop][tool] = 0
+                    tools[prop][tool] += 1
+        result = {}
+        for prop, V in tools.items():
+            for tool, c in V.items():
+                if c >= catCount[prop]-5:
+                    if prop not in result:
+                        result[prop] = set([])
+                    result[prop].add(tool)
+        return result
 
     def run(self):
         with self.input()[0] as i:
-            rankings = i.query()
+            L = i.query()
 
-        tools = SVCompLabelMatrixTask.common_tools(rankings)
-        print(tools)
+        with self.input()[1] as inp:
+            graph_index = inp.query()
 
-        tool_index = {t: i for i, t in enumerate(tools)}
+        tools = SVCompLabelMatrixTask.common_tools(L)
 
-        n = len(tools)
-        length = int(n * (n - 1) / 2)
-
-        label_index = {}
-        stack = []
-
-        for k, V in rankings.items():
-            for prop, R in V.items():
-                if prop not in label_index:
-                    label_index[prop] = {}
-
-                label = np.zeros((length))
-
-                for i, t1 in enumerate(R):
-                    if t1 not in tool_index:
-                        continue
-                    t1i = tool_index[t1]
-                    for j, t2 in enumerate(R):
-                        if t2 not in tool_index:
-                            continue
-                        t2i = tool_index[t2]
-                        if t1i < t2i:
-                            p = index(t1i, t2i, n) - n
-                            label[p] = 1 if i < j else 0
-
-                label_index[prop][k] = len(stack)
-                stack.append(label)
-
-        L = np.vstack(stack)
-        L = L.tolist()
+        label_index, matrix = label_clf(graph_index, L, tools)
 
         with self.output() as o:
             o.emit({
-                'tools': list(tools),
+                'tools': tools,
                 'index': label_index,
-                'matrix': L
+                'matrix': matrix.tolist()
             })
