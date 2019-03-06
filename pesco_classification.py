@@ -274,7 +274,6 @@ class RPCRankPredictionEvaluation(Task):
         sub_scores = []
 
         prediction = {}
-        save = {}
         for i in range(3, len(self.input())):
             with self.input()[i] as inp:
                 P = inp.query()
@@ -287,14 +286,6 @@ class RPCRankPredictionEvaluation(Task):
                  ]
             )
             prediction[(x, y)] = np.array(P['prediction'])
-            if x not in save:
-                save[x] = {}
-            save[x][y] = P['prediction']
-
-        save['index'] = self.test_index
-
-        with open("ranking_%s.json" % self.identifier, "w") as o:
-            json.dump(save, o, indent=4)
 
         rankings = predicted_rankings(prediction)
 
