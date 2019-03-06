@@ -35,10 +35,6 @@ def accuracy_score(prediction_ranking, expected_ranking, graph=None):
     return 0
 
 
-def norm_rank(A, B):
-    return [x for x in A if x in B], [y for y in B if y in A]
-
-
 def _is_list(obj):
     if isinstance(obj, str):
         return False
@@ -65,7 +61,6 @@ def restricted_tie_break(A, B):
 
 
 def spearmann_score(prediction_ranking, expected_ranking, graph=None):
-    prediction_ranking, expected_ranking = norm_rank(prediction_ranking, expected_ranking)
     expected_ranking, prediction_ranking = restricted_tie_break(expected_ranking, prediction_ranking)
     pr = {t: i for i, t in enumerate(prediction_ranking)}
     er = {t: i for i, t in enumerate(expected_ranking)}
@@ -116,8 +111,6 @@ def _kendall_rank_pairs(ranking):
 
 
 def kendall_tau_score(prediction_ranking, expected_ranking, graph=None):
-    prediction_ranking, expected_ranking = norm_rank(prediction_ranking, expected_ranking)
-
     count = 0
     n_c = 0
     n_d = 0
@@ -129,6 +122,9 @@ def kendall_tau_score(prediction_ranking, expected_ranking, graph=None):
         else:
             n_d += 1
         count += 1
+
+    if count == 0:
+        return 1
 
     return (n_c - n_d) / count
 

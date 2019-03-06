@@ -2,10 +2,12 @@ from pyTasks.task import Task, Parameter, Optional
 from pyTasks.target import LocalTarget, JsonService, FileTarget
 import numpy as np
 from .bag_tasks import index
-from .rank_scores import select_score, norm_rank
+from .rank_scores import select_score
 
 from sklearn.model_selection import GridSearchCV, KFold
 from sklearn.svm import SVC
+
+import json
 
 
 def create_index(slice_index, graphIndex, labelIndex, properties):
@@ -47,7 +49,8 @@ class RPCBinaryClassification(Task):
     label_path = Parameter("")
 
     def __init__(self, identifier, x, y, C, h, D,
-                 properties, train_index, test_index):
+                 properties, train_index, test_index,
+                 probability=True):
         self.identifier = identifier
         self.x = x
         self.y = y
@@ -57,6 +60,7 @@ class RPCBinaryClassification(Task):
         self.properties = properties
         self.train_index = train_index
         self.test_index = test_index
+        self.probability = probability
 
     def require(self):
         return [
@@ -100,29 +104,46 @@ class RPCBinaryClassification(Task):
         train_index, y_train = create_index(
             self.train_index, graphIndex, all_label['index'], self.properties
         )
-        X_train = X[train_index, :][:, train_index]
 
-        X_test = X[self.test_index, :][:, train_index]
-        del X
+        test_index, y_test_index = create_index(
+            self.test_index, graphIndex, all_label['index'], self.properties
+        )
 
         y = np.array(all_label['matrix'])
         n = len(all_label['tools'])
         y = y[:, index(self.x, self.y, n) - n]
 
         y_train = y[y_train]
+        y_test = y[y_test_index]
         del y
+
+        X_train = X[train_index, :][:, train_index]
+
+        m = y_train.nonzero()[0]
+        y_train = y_train[m]
+        y_train[np.where(y_train == -1)] = 0
+        X_train = X_train[m, :][:, m]
+
+        X_test = X[self.test_index, :][:, train_index]
+        X_test = X_test[:, m]
+
+        mt = y_test.nonzero()[0]
+        y_test = y_test[mt]
+        y_test[np.where(y_test == -1)] = 0
+        X_p_test = X[test_index, :][mt, :][:, train_index][:, m]
+        del X
 
         print("Finished slicing")
 
         clf = SVC(
-            kernel='precomputed'
+            kernel='precomputed', probability=self.probability
         )
         params = {
             'C': self.C
         }
 
         clf = GridSearchCV(
-            clf, params, 'f1', n_jobs=-1, iid=False, cv=10
+            clf, params, 'accuracy', n_jobs=-1, iid=False, cv=10
         )
         print("Start training...")
         clf.fit(X_train, y_train)
@@ -138,13 +159,17 @@ class RPCBinaryClassification(Task):
             },
             'best_estimator': {
                 'C': float(clf.best_params_['C']),
-                'f1': float(clf.best_score_)
+                'accuracy': float(clf.best_score_),
+                'test_score': float(clf.score(X_p_test, y_test))
             }
         }
 
         print("Start prediction...")
 
-        y = clf.predict(X_test)
+        if self.probability:
+            y = clf.predict_proba(X_test)[:, 1]
+        else:
+            y = clf.predict(X_test)
 
         result['prediction'] = y.tolist()
 
@@ -186,7 +211,8 @@ class RPCRankPredictionEvaluation(Task):
     graphIndex_path = Parameter("")
 
     def __init__(self, identifier, tool_count, C, h, D, measures,
-                 properties, train_index, test_index):
+                 properties, train_index, test_index,
+                 probability=True):
         self.identifier = identifier
         self.tool_count = tool_count
         self.C = C
@@ -196,6 +222,7 @@ class RPCRankPredictionEvaluation(Task):
         self.train_index = train_index
         self.test_index = test_index
         self.measures = measures
+        self.probability = probability
 
     def require(self):
         base = [
@@ -222,7 +249,8 @@ class RPCRankPredictionEvaluation(Task):
                         self.D,
                         self.properties,
                         self.train_index,
-                        self.test_index
+                        self.test_index,
+                        self.probability
                     )
                 )
 
@@ -246,15 +274,27 @@ class RPCRankPredictionEvaluation(Task):
         sub_scores = []
 
         prediction = {}
+        save = {}
         for i in range(3, len(self.input())):
             with self.input()[i] as inp:
                 P = inp.query()
             x = P['params']['first_tool']
             y = P['params']['second_tool']
             sub_scores.append(
-                [x, y, P['best_estimator']['C'], P['best_estimator']['f1']]
+                [x, y, P['best_estimator']['C'],
+                 P['best_estimator']['accuracy'],
+                 P['best_estimator']['test_score']
+                 ]
             )
             prediction[(x, y)] = np.array(P['prediction'])
+            if x not in save:
+                save[x] = {}
+            save[x][y] = P['prediction']
+
+        save['index'] = self.test_index
+
+        with open("ranking_%s.json" % self.identifier, "w") as o:
+            json.dump(save, o, indent=4)
 
         rankings = predicted_rankings(prediction)
 
@@ -284,10 +324,6 @@ class RPCRankPredictionEvaluation(Task):
                 expected_ranking = expected[g_name][prop]
                 ranking = rankings[i]
 
-                expected_ranking, ranking = norm_rank(
-                                                      expected_ranking,
-                                                      ranking
-                                                      )
                 if len(expected_ranking) == 0:
                     continue
                 for k, score in scores.items():
@@ -322,7 +358,7 @@ class RPCRankPredictionEvaluationCV(Task):
     out_dir = Parameter("./ranking/")
 
     def __init__(self, identifier, tool_count, C, h, D, measures,
-                 properties, train_index):
+                 properties, train_index, probability=True):
         self.identifier = identifier
         self.tool_count = tool_count
         self.C = C
@@ -331,6 +367,7 @@ class RPCRankPredictionEvaluationCV(Task):
         self.properties = properties
         self.train_index = train_index
         self.measures = measures
+        self.probability = probability
 
     def require(self):
         fold = KFold(10, True, 42)
@@ -347,7 +384,8 @@ class RPCRankPredictionEvaluationCV(Task):
                         self.measures,
                         self.properties,
                         train[train_index].tolist(),
-                        train[test_index].tolist()
+                        train[test_index].tolist(),
+                        self.probability
                     )
             )
 

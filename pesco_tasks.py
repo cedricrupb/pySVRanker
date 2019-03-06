@@ -693,6 +693,10 @@ class PescoGramTask(Task):
                 K = K.toarray()
 
         print(K.shape)
+
+        if issparse(K):
+            K = K.toarray()
+
         data = K.tolist()
 
         with self.output() as o:
@@ -839,7 +843,7 @@ def label_clf(graphIndex, L, tools):
             lix = y_ix[prop][k]
             for i in range(n-1):
                 for j in range(i+1, n):
-                    pix = index(i, j, n)
+                    pix = index(i, j, n) - n
 
                     l1 = label[tools[i]]
                     l2 = label[tools[j]]
