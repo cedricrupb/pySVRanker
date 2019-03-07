@@ -311,9 +311,16 @@ class RPCRankPredictionEvaluation(Task):
 
         scorings = {}
 
+        seen = set([])
+
         for i, t in enumerate(self.test_index):
+            if t in seen:
+                continue
+            seen.add(t)
             g_name = rev_index[t]
             for prop in self.properties:
+                if prop not in expected[g_name]:
+                    continue
                 expected_ranking = expected[g_name][prop]
                 ranking = rankings[i]
 
