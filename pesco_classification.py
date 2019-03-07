@@ -7,8 +7,6 @@ from .rank_scores import select_score
 from sklearn.model_selection import GridSearchCV, KFold
 from sklearn.svm import SVC
 
-import json
-
 
 def create_index(slice_index, graphIndex, labelIndex, properties):
 
@@ -17,10 +15,14 @@ def create_index(slice_index, graphIndex, labelIndex, properties):
 
     for k, i in ((k, i) for k, i in graphIndex.items() if i in slice_index):
         for prop in properties:
-            X_index.append(i)
-            y_index.append(
-                labelIndex[prop][k]
-            )
+            if k in labelIndex[prop]:
+                X_index.append(i)
+                y_index.append(
+                    labelIndex[prop][k]
+                )
+
+    if len(properties) == 1 and len(X_index) < len(slice_index):
+        raise ValueError("Too few examples: %d != %d" % (len(X_index), len(slice_index)))
 
     return X_index, y_index
 
