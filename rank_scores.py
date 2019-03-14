@@ -30,6 +30,7 @@ def select_score(type_id, map_graph_to_labels, map_graph_to_times):
 
 
 def accuracy_score(prediction_ranking, expected_ranking, graph=None):
+    expected_ranking, prediction_ranking = restricted_tie_break(expected_ranking, prediction_ranking)
     if prediction_ranking[0] == expected_ranking[0]:
         return 1
     return 0

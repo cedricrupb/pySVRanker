@@ -30,6 +30,7 @@ class PescoGraphTask(Task):
     pesco_path = Parameter('')
     svcomp_path = Parameter('')
     timeout = Parameter(None)
+    heap = Parameter("15000m")
 
     def __init__(self, input_path):
         self.input_path = input_path
@@ -76,7 +77,7 @@ class PescoGraphTask(Task):
         proc = subprocess.run(
                                 [run_path,
                                  "-graphgen",
-                                 "-heap", "10000m",
+                                 "-heap", self.heap.value,
                                  "-Xss512k",
                                  "-setprop", "graphGen.output="+output_path,
                                  path_to_source
