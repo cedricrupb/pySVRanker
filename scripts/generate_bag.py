@@ -167,7 +167,8 @@ def is_forward_and_parse(e):
     return e[2:], False
 
 
-def parse_dfs_nx(R):
+# Parse graph reprsentation produced by older version of PeSCo
+def _parse_dfs_nx_old(R):
     if R is None:
         return nx.MultiDiGraph()
     graph = nx.MultiDiGraph()
@@ -180,8 +181,43 @@ def parse_dfs_nx(R):
             graph.add_edge(_R[0], _R[1], key=e_label)
         else:
             graph.add_edge(_R[1], _R[0], key=e_label)
+    
+    return graph
+
+# Parse graph reprsentation produced by newest version of PeSCo
+def _parse_dfs_nx(R):
+    if R is None:
+        return nx.MultiDiGraph()
+    graph = nx.MultiDiGraph()
+
+    for node, label in R["nodes"].items():
+        graph.add_node(node, label = label)
+
+    for source, edge_type, target in R["edges"]:
+        if edge_type.startswith("<|"):
+            edge_type = edge_type[2:]
+            source, target = target, source
+        else:
+            edge_type = edge_type[:-2]
+        graph.add_edge(source, target, key = edge_type)
+
+
+    # AST roots are disconnected (Only identifiable via identifier)
+    for node in graph.nodes():
+        if "_" not in node: continue # Is no AST node
+        if len(graph.out_edges(node)) > 0: continue # Cannot be an AST root (AST is inverted, edges are directed towards root)
+        graph.add_edge(node, node.split("_")[0], key = "s")
+
+    assert nx.is_weakly_connected(graph), "Graph is not fully connected. Some edges are missing."
 
     return graph
+
+
+def parse_dfs_nx(R, updated = False):
+    if updated:
+        return _parse_dfs_nx(R)
+    else:
+        return _parse_dfs_nx_old(R)
 
 
 def pathId(path):
@@ -189,12 +225,12 @@ def pathId(path):
     return os.path.splitext(base)[0]
 
 
-def load_graph(path):
+def load_graph(path, updated = False):
     if not os.path.isfile(path):
         raise ValueError("Unknown path: %s" % path)
     with open(path, "r") as i:
         R = json.load(i)
-    G = parse_dfs_nx(R)
+    G = parse_dfs_nx(R, updated)
     G.graph['id'] = pathId(path)
     return G
 
@@ -207,6 +243,7 @@ if __name__ == '__main__':
     parser.add_argument("depth", help="depth bound for AST tree", type=int)
     parser.add_argument("output", help="output directory", type=str)
     parser.add_argument("-b", "--bunch", action="store_true")
+    parser.add_argument("--old_graph_format", action="store_true", help="The default AST representation of PeSCo has changed. Use this option to parse the older version")
 
     args = parser.parse_args()
 
@@ -229,7 +266,7 @@ if __name__ == '__main__':
     for inp in inputs:
         with tqdm(total=args.iteration+3) as pbar:
             try:
-                G = load_graph(inp)
+                G = load_graph(inp, not args.old_graph_format)
             except Exception as e:
                 print("Problem while loading: %s. Continue with next." % (inp))
                 traceback.print_exc(file=sys.stdout)
